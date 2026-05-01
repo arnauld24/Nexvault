@@ -7,6 +7,7 @@ import {
   Mail, HelpCircle, Menu, X,
 } from 'lucide-react';
 import { FaTwitter, FaGithub, FaLinkedinIn, FaInstagram } from 'react-icons/fa';
+import { useAuth } from '../context/AuthContext';
 import './Landing.css';
 
 const features = [
@@ -519,4 +520,33 @@ export default function Landing() {
       </footer>
     </div>
   );
+}
+
+export function LandingPage() {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading } = useAuth();
+
+  useEffect(() => {
+    if (!loading && isAuthenticated) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, loading, navigate]);
+
+  if (loading) {
+    return (
+      <div className="landing-loading">
+        <div className="landing-logo">
+          <div className="landing-logo-mark">N</div>
+          <span>NexVault</span>
+        </div>
+        <div className="loading-spinner"></div>
+      </div>
+    );
+  }
+
+  if (isAuthenticated) {
+    return null; // Will redirect
+  }
+
+  return <Landing />;
 }

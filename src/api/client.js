@@ -177,8 +177,11 @@ class APIClient {
       }),
     });
 
-    if (response.success && response.accessToken) {
-      this.setTokens(response.accessToken, response.refreshToken);
+    const accessToken = response.accessToken || response.token || response.access_token;
+    const refreshToken = response.refreshToken || response.refresh_token;
+
+    if (response.success && accessToken) {
+      this.setTokens(accessToken, refreshToken);
     }
 
     return response;

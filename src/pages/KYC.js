@@ -93,8 +93,10 @@ function SelfieCapture({ onCapture, captured, onRetake }) {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play();
-          setCameraReady(true);
+          if (videoRef.current) {
+            videoRef.current.play();
+            setCameraReady(true);
+          }
         };
       }
     } catch (err) {
@@ -120,7 +122,7 @@ function SelfieCapture({ onCapture, captured, onRetake }) {
   }, [captured]); // eslint-disable-line
 
   const takePhoto = () => {
-    if (!cameraReady || !videoRef.current) return;
+    if (!cameraReady || !videoRef.current || !canvasRef.current) return;
     // 3-second countdown
     let count = 3;
     setCountdown(count);
@@ -129,16 +131,26 @@ function SelfieCapture({ onCapture, captured, onRetake }) {
       if (count === 0) {
         clearInterval(interval);
         setCountdown(null);
-        const canvas = canvasRef.current;
-        const video = videoRef.current;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        canvas.toBlob(blob => {
-          const file = new File([blob], 'selfie.jpg', { type: 'image/jpeg' });
-          stopCamera();
-          onCapture(file);
-        }, 'image/jpeg', 0.92);
+        try {
+          const canvas = canvasRef.current;
+          const video = videoRef.current;
+          if (canvas && video) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            canvas.toBlob(blob => {
+              if (blob) {
+                const file = new File([blob], 'selfie.jpg', { type: 'image/jpeg' });
+                stopCamera();
+                onCapture(file);
+              }
+            }, 'image/jpeg', 0.92);
+          }
+        } catch (err) {
+          console.error('Error taking photo:', err);
+          setCameraError('Failed to capture photo. Please try again.');
+          setCountdown(null);
+        }
       } else {
         setCountdown(count);
       }
@@ -242,17 +254,34 @@ export function KYCVerification() {
     return e;
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     const e = validateStep();
     if (Object.keys(e).length) { setErrors(e); return; }
     setErrors({});
     if (step < 3) { setStep(s => s + 1); return; }
+    
     setLoading(true);
-    setTimeout(() => {
+    try {
+      // Construct formData with the collected information
+      const submitData = {
+        personalInfo: form,
+        documentType: docType,
+        idDocument: files.front, // front side of ID
+        passportDocument: docType === 'passport' ? files.front : null,
+        backDocument: files.back, // back side of ID (for non-passport)
+        selfie: files.selfie,
+        addressProof: files.back, // Use back as address proof placeholder
+      };
+      
+      await submitKYC(submitData);
+      // Brief success delay
+      setTimeout(() => {
+        navigate('/kyc-status');
+      }, 500);
+    } catch (err) {
+      setErrors({ submit: err.message || 'Failed to submit KYC. Please try again.' });
       setLoading(false);
-      submitKYC();
-      navigate('/kyc-status');
-    }, 1800);
+    }
   };
 
   const steps = ['Personal Info', 'Document Upload', 'Selfie'];
@@ -414,6 +443,30 @@ export function KYCVerification() {
 
 export function KYCStatus() {
   const navigate = useNavigate();
+  const { kycStatus, loading, error, refreshKycStatus } = useKYC();
+
+  React.useEffect(() => {
+    // Refresh status when component mounts
+    refreshKycStatus();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="kyc-page">
+        <div className="kyc-container">
+          <div className="kyc-card" style={{ textAlign: 'center', padding: '40px' }}>
+            <span className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+            <p style={{ marginTop: 16, color: 'var(--text-secondary)' }}>Loading your KYC status...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const isVerified = kycStatus === 'verified';
+  const isPending = kycStatus === 'pending';
+  const isRejected = kycStatus === 'rejected';
+  const isUnverified = kycStatus === 'unverified' || !kycStatus;
 
   return (
     <div className="kyc-page">
@@ -426,41 +479,170 @@ export function KYCStatus() {
         </div>
 
         <div className="kyc-status-card animate-fade">
-          <div className="kyc-status-icon verified"><CheckCircle size={36} /></div>
-          <h2>Identity Verified!</h2>
-          <p>Your KYC verification is complete. All NexVault features are now unlocked for your account.</p>
+          {/* VERIFIED */}
+          {isVerified && (
+            <>
+              <div className="kyc-status-icon verified"><CheckCircle size={36} /></div>
+              <h2>Identity Verified!</h2>
+              <p>Your KYC verification is complete. All NexVault features are now unlocked for your account.</p>
 
-          <div className="kyc-status-items">
-            {['Personal Information', 'Document Verification', 'Selfie Match', 'Sanctions Screening'].map((item, i) => (
-              <div key={i} className="kyc-status-item success">
-                <CheckCircle size={15} /> {item}
+              <div className="kyc-status-items">
+                {['Personal Information', 'Document Verification', 'Selfie Match', 'Sanctions Screening'].map((item, i) => (
+                  <div key={i} className="kyc-status-item success">
+                    <CheckCircle size={15} /> {item}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          <div className="kyc-limits">
-            <h4>Your Account Limits</h4>
-            <div className="kyc-limits-grid">
-              <div className="kyc-limit-item">
-                <div className="kyc-limit-label">Daily Send Limit</div>
-                <div className="kyc-limit-value">$50,000</div>
+              <div className="kyc-limits">
+                <h4>Your Account Limits</h4>
+                <div className="kyc-limits-grid">
+                  <div className="kyc-limit-item">
+                    <div className="kyc-limit-label">Daily Send Limit</div>
+                    <div className="kyc-limit-value">$50,000</div>
+                  </div>
+                  <div className="kyc-limit-item">
+                    <div className="kyc-limit-label">Monthly Volume</div>
+                    <div className="kyc-limit-value">$200,000</div>
+                  </div>
+                  <div className="kyc-limit-item">
+                    <div className="kyc-limit-label">Verified Since</div>
+                    <div className="kyc-limit-value">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                  </div>
+                </div>
               </div>
-              <div className="kyc-limit-item">
-                <div className="kyc-limit-label">Monthly Volume</div>
-                <div className="kyc-limit-value">$200,000</div>
+
+              <button className="btn btn-primary btn-lg btn-full" onClick={() => navigate('/dashboard')}>
+                Go to Dashboard <ArrowRight size={16} />
+              </button>
+            </>
+          )}
+
+          {/* PENDING */}
+          {isPending && (
+            <>
+              <div className="kyc-status-icon pending" style={{ color: 'var(--warning)' }}><RefreshCw size={36} /></div>
+              <h2>Verification in Progress</h2>
+              <p>Your KYC documents have been submitted and are being reviewed by our team.</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 12 }}>This typically takes 24-48 hours. You'll receive an email notification when your verification is complete.</p>
+
+              <div className="kyc-status-items">
+                {['Personal Information', 'Document Verification', 'Selfie Match'].map((item, i) => (
+                  <div key={i} className="kyc-status-item pending">
+                    <RefreshCw size={15} /> {item}
+                  </div>
+                ))}
               </div>
-              <div className="kyc-limit-item">
-                <div className="kyc-limit-label">Verified Since</div>
-                <div className="kyc-limit-value">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+
+              <button className="btn btn-outline btn-lg btn-full" onClick={() => navigate('/dashboard')}>
+                Return to Dashboard
+              </button>
+            </>
+          )}
+
+          {/* REJECTED */}
+          {isRejected && (
+            <>
+              <div className="kyc-status-icon rejected" style={{ color: 'var(--danger)' }}><X size={36} /></div>
+              <h2>Verification Unsuccessful</h2>
+              <p>Unfortunately, your KYC verification was not approved. This may be due to:</p>
+
+              <div className="kyc-status-items" style={{ marginTop: 16 }}>
+                <div className="kyc-status-item" style={{ color: 'var(--danger)' }}>
+                  <Info size={15} /> Low document quality or clarity
+                </div>
+                <div className="kyc-status-item" style={{ color: 'var(--danger)' }}>
+                  <Info size={15} /> Selfie doesn't match the document
+                </div>
+                <div className="kyc-status-item" style={{ color: 'var(--danger)' }}>
+                  <Info size={15} /> Missing or expired documents
+                </div>
               </div>
+
+              <p style={{ marginTop: 16, color: 'var(--text-secondary)' }}>Please resubmit your documents with clear photos and a proper selfie.</p>
+
+              <button className="btn btn-primary btn-lg btn-full" onClick={() => navigate('/kyc')}>
+                Resubmit Documents
+              </button>
+              <button className="btn btn-outline btn-lg btn-full" style={{ marginTop: 12 }} onClick={() => navigate('/dashboard')}>
+                Return to Dashboard
+              </button>
+            </>
+          )}
+
+          {/* UNVERIFIED */}
+          {isUnverified && (
+            <>
+              <div className="kyc-status-icon" style={{ color: 'var(--primary)' }}><User size={36} /></div>
+              <h2>Complete Your KYC</h2>
+              <p>Start the identity verification process to unlock all NexVault features.</p>
+
+              <div className="kyc-status-items">
+                {[
+                  { title: 'Personal Information', desc: 'Provide your name, address, and date of birth' },
+                  { title: 'Document Upload', desc: 'Upload a valid passport, driver license, or national ID' },
+                  { title: 'Selfie Verification', desc: 'Take a selfie to confirm your identity' }
+                ].map((item, i) => (
+                  <div key={i} className="kyc-status-item" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600 }}>
+                        {i + 1}
+                      </span>
+                      <span style={{ fontWeight: 600 }}>{item.title}</span>
+                    </div>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 32 }}>{item.desc}</span>
+                  </div>
+                ))}
+              </div>
+
+              <button className="btn btn-primary btn-lg btn-full" onClick={() => navigate('/kyc')}>
+                Start Verification <ArrowRight size={16} />
+              </button>
+            </>
+          )}
+
+          {error && (
+            <div className="alert alert-danger" style={{ marginTop: 16 }}>
+              <strong>Error:</strong> {error}
             </div>
-          </div>
-
-          <button className="btn btn-primary btn-lg btn-full" onClick={() => navigate('/dashboard')}>
-            Go to Dashboard <ArrowRight size={16} />
-          </button>
+          )}
         </div>
       </div>
     </div>
   );
 }
+
+/* ─── Smart KYC Router - Routes to verification form or status page based on user status ─── */
+const KYCRouter = React.memo(() => {
+  const { kycStatus, loading } = useKYC();
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!loading && !hasLoaded) {
+      setHasLoaded(true);
+    }
+  }, [loading, hasLoaded]);
+
+  if (loading && !hasLoaded) {
+    return (
+      <div className="kyc-page">
+        <div className="kyc-container">
+          <div className="kyc-card" style={{ textAlign: 'center', padding: '40px' }}>
+            <span className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+            <p style={{ marginTop: 16, color: 'var(--text-secondary)' }}>Loading KYC status...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // If verified or has a status (pending/rejected), show status page
+  // If unverified, show verification form
+  if (kycStatus === 'verified' || kycStatus === 'pending' || kycStatus === 'rejected') {
+    return <KYCStatus />;
+  }
+
+  return <KYCVerification />;
+});
+
+export { KYCRouter };

@@ -1,9 +1,5 @@
-<<<<<<< HEAD
 import React, { useState, useEffect } from 'react';
-=======
-import React, { useState } from 'react';
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Mail, Lock, Eye, EyeOff, ArrowRight,
   User, Phone, CheckCircle, Shield, Zap, BarChart2, Target,
@@ -11,10 +7,6 @@ import {
 import { FcGoogle } from 'react-icons/fc';
 import { FaApple } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
-<<<<<<< HEAD
-=======
-import { currentUser } from '../data/mockData';
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
 import './Auth.css';
 
 function validateEmail(email) {
@@ -53,35 +45,14 @@ function getPasswordStrength(pw) {
 
 export function Login() {
   const navigate = useNavigate();
-<<<<<<< HEAD
-  const { login, verifyTwoFactor, isAuthenticated, isLoading } = useAuth();
-=======
   const { login } = useAuth();
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
   const [form, setForm] = useState({ email: '', password: '', remember: false });
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
-<<<<<<< HEAD
-  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
-  const [twoFactorEmail, setTwoFactorEmail] = useState('');
-  const [twoFactorCode, setTwoFactorCode] = useState('');
-  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
 
   const justRegistered = new URLSearchParams(window.location.search).get('registered') === 'true';
 
-  // Redirect to dashboard if already authenticated
-  useEffect(() => {
-    if (isAuthenticated && !isLoading) {
-      navigate('/dashboard', { replace: true });
-    }
-  }, [isAuthenticated, isLoading, navigate]);
-
-=======
-
-  const justRegistered = new URLSearchParams(window.location.search).get('registered') === 'true';
-
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
   const validate = () => {
     const e = {};
     if (!form.email.trim()) e.email = 'Email is required.';
@@ -91,72 +62,27 @@ export function Login() {
     return e;
   };
 
-<<<<<<< HEAD
   const handleSubmit = async (e) => {
-=======
-  const handleSubmit = (e) => {
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
     e.preventDefault();
     const errs = validate();
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setErrors({});
     setLoading(true);
-<<<<<<< HEAD
-    
-    try {
-      const response = await login(form.email, form.password, 'Web Browser', 'desktop');
-      if (response.success) {
-        if (response.requiresTwoFactor) {
-          setTwoFactorRequired(true);
-          setTwoFactorEmail(response.email);
-          setLoading(false);
-        } else {
-          navigate('/dashboard');
-        }
-      } else {
-        setErrors({ general: response.error || 'Login failed. Please try again.' });
-        setLoading(false);
-      }
-    } catch (error) {
-      setErrors({ general: error.message || 'An error occurred. Please try again.' });
-      setLoading(false);
-    }
-  };
-
-  const handleTwoFactorSubmit = async (e) => {
-    e.preventDefault();
-    if (!twoFactorCode.trim()) {
-      setErrors({ twoFactor: 'Verification code is required.' });
-      return;
-    }
-    setErrors({});
-    setTwoFactorLoading(true);
 
     try {
-      const response = await verifyTwoFactor(twoFactorEmail, twoFactorCode);
-      if (response.success) {
+      const response = await login(form.email.trim(), form.password);
+      if (response.success && response.requiresTwoFactor) {
+        navigate('/verify-2fa', { state: { email: form.email.trim(), method: response.twoFactorMethod } });
+      } else if (response.success) {
         navigate('/dashboard');
       } else {
-        setErrors({ twoFactor: response.error || 'Invalid verification code.' });
+        setErrors({ form: response.message || 'Invalid email or password.' });
       }
-    } catch (error) {
-      setErrors({ twoFactor: error.message || 'Verification failed. Please try again.' });
+    } catch (err) {
+      setErrors({ form: err.message || 'Login failed. Please try again.' });
     } finally {
-      setTwoFactorLoading(false);
-    }
-  };
-
-  const handleBackToLogin = () => {
-    setTwoFactorRequired(false);
-    setTwoFactorCode('');
-    setErrors({});
-=======
-    setTimeout(() => {
       setLoading(false);
-      login(currentUser);
-      navigate('/dashboard');
-    }, 1200);
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
+    }
   };
 
   const features = [
@@ -189,66 +115,23 @@ export function Login() {
       <div className="auth-right">
         <div className="auth-form-wrap animate-fade">
           <div className="auth-form-header">
-<<<<<<< HEAD
-            <h1>{twoFactorRequired ? 'Two-Factor Authentication' : 'Sign in'}</h1>
-            <p>{twoFactorRequired ? `Enter the verification code sent to ${twoFactorEmail}` : 'Welcome back! Enter your details to continue.'}</p>
-          </div>
-
-          {justRegistered && !twoFactorRequired && (
-=======
             <h1>Sign in</h1>
             <p>Welcome back! Enter your details to continue.</p>
           </div>
 
           {justRegistered && (
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
             <div className="alert alert-success" style={{ marginBottom: 16 }}>
               Account created! Sign in to access your dashboard.
             </div>
           )}
 
-<<<<<<< HEAD
-          {errors.general && !twoFactorRequired && (
+          {errors.form && (
             <div className="alert alert-danger" style={{ marginBottom: 16 }}>
-              {errors.general}
+              {errors.form}
             </div>
           )}
 
-          {errors.twoFactor && twoFactorRequired && (
-            <div className="alert alert-danger" style={{ marginBottom: 16 }}>
-              {errors.twoFactor}
-            </div>
-          )}
-
-          {twoFactorRequired ? (
-            <form onSubmit={handleTwoFactorSubmit} noValidate>
-              <div className="form-group">
-                <label className="form-label">Verification Code</label>
-                <input
-                  type="text"
-                  className={`form-control ${errors.twoFactor ? 'input-error' : ''}`}
-                  placeholder="Enter 6-digit code"
-                  value={twoFactorCode}
-                  onChange={e => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  maxLength={6}
-                  aria-describedby={errors.twoFactor ? '2fa-error' : undefined}
-                />
-                {errors.twoFactor && <span id="2fa-error" className="field-error">{errors.twoFactor}</span>}
-              </div>
-
-              <button type="submit" className="btn btn-primary btn-full btn-lg" disabled={twoFactorLoading}>
-                {twoFactorLoading ? <><span className="spinner" />Verifying...</> : <><span>Verify Code</span><ArrowRight size={16} /></>}
-              </button>
-
-              <button type="button" className="btn btn-secondary btn-full" onClick={handleBackToLogin} style={{ marginTop: 12 }}>
-                Back to Login
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleSubmit} noValidate>
-=======
           <form onSubmit={handleSubmit} noValidate>
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
             <div className="form-group">
               <label className="form-label">Email Address</label>
               <div className="input-icon-wrap">
@@ -298,23 +181,6 @@ export function Login() {
               {loading ? <><span className="spinner" />Signing in...</> : <><span>Sign In</span><ArrowRight size={16} /></>}
             </button>
           </form>
-<<<<<<< HEAD
-          )}
-
-          {!twoFactorRequired && (
-            <>
-              <div className="auth-divider"><span>or continue with</span></div>
-              <div className="auth-social">
-                <button className="auth-social-btn"><FcGoogle size={18} /> Google</button>
-                <button className="auth-social-btn"><FaApple size={18} /> Apple</button>
-              </div>
-
-              <div className="auth-switch">
-                Don't have an account? <Link to="/register">Create one free</Link>
-              </div>
-            </>
-          )}
-=======
 
           <div className="auth-divider"><span>or continue with</span></div>
           <div className="auth-social">
@@ -325,7 +191,104 @@ export function Login() {
           <div className="auth-switch">
             Don't have an account? <Link to="/register">Create one free</Link>
           </div>
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function Verify2FA() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { verifyTwoFactor } = useAuth();
+  const [code, setCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const email = location.state?.email || '';
+  const method = location.state?.method || 'email';
+
+  useEffect(() => {
+    if (!email) {
+      navigate('/login');
+    }
+  }, [email, navigate]);
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    if (!code.trim()) {
+      setError('Please enter the verification code sent to your email.');
+      return;
+    }
+    setError(null);
+    setLoading(true);
+
+    try {
+      const response = await verifyTwoFactor(email, code.trim());
+      if (response.success) {
+        navigate('/dashboard');
+      } else {
+        setError(response.message || 'Invalid verification code.');
+      }
+    } catch (err) {
+      setError(err.message || 'Verification failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-page">
+      <div className="auth-left">
+        <div className="auth-left-content">
+          <div className="landing-logo" style={{ marginBottom: 40 }}>
+            <div className="landing-logo-mark">N</div>
+            <span style={{ color: '#fff', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22 }}>NexVault</span>
+          </div>
+          <h2>Two-factor authentication</h2>
+          <p>Enter the code we sent to <strong>{email}</strong> to complete login.</p>
+          <div className="auth-features">
+            <div className="auth-feature-item"><Shield size={16} /> Secure sign in</div>
+            <div className="auth-feature-item"><Zap size={16} /> Verified on every login</div>
+            <div className="auth-feature-item"><Mail size={16} /> Code delivered via {method}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="auth-right">
+        <div className="auth-form-wrap animate-fade">
+          <div className="auth-form-header">
+            <h1>Verify your login</h1>
+            <p>Enter the 6-digit code from your email.</p>
+          </div>
+
+          {error && (
+            <div className="alert alert-danger" style={{ marginBottom: 16 }}>
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleVerify} noValidate>
+            <div className="form-group">
+              <label className="form-label">Verification Code</label>
+              <input
+                type="text"
+                className={`form-control ${error ? 'input-error' : ''}`}
+                placeholder="123456"
+                value={code}
+                onChange={e => setCode(e.target.value)}
+              />
+            </div>
+
+            <button type="submit" className="btn btn-primary btn-full btn-lg" disabled={loading}>
+              {loading ? <><span className="spinner" /> Verifying...</> : 'Verify and continue'}
+            </button>
+          </form>
+
+          <div className="auth-switch" style={{ marginTop: 18 }}>
+            <button type="button" className="btn btn-ghost" onClick={() => navigate('/login')}>
+              Back to login
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -334,10 +297,6 @@ export function Login() {
 
 export function Register() {
   const navigate = useNavigate();
-<<<<<<< HEAD
-  const { register, login, isAuthenticated, isLoading } = useAuth();
-=======
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
@@ -347,16 +306,6 @@ export function Register() {
     password: '', confirm: '', agree: false,
   });
 
-<<<<<<< HEAD
-  // Redirect to dashboard if already authenticated
-  useEffect(() => {
-    if (isAuthenticated && !isLoading) {
-      navigate('/dashboard', { replace: true });
-    }
-  }, [isAuthenticated, isLoading, navigate]);
-
-=======
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
   const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const validateStep1 = () => {
@@ -390,11 +339,7 @@ export function Register() {
     return e;
   };
 
-<<<<<<< HEAD
-  const handleNext = async (e) => {
-=======
   const handleNext = (e) => {
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
     e.preventDefault();
     if (step === 1) {
       const errs = validateStep1();
@@ -407,37 +352,7 @@ export function Register() {
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setErrors({});
     setLoading(true);
-<<<<<<< HEAD
-    
-    try {
-      const response = await register({
-        firstName: form.firstName,
-        lastName: form.lastName,
-        email: form.email,
-        phoneNumber: form.phone,
-        country: null,
-        city: null,
-        password: form.password,
-      });
-      
-      if (response.success) {
-        const loginResponse = await login(form.email, form.password, 'Web Browser', 'desktop');
-        if (loginResponse.success) {
-          navigate('/dashboard', { replace: true });
-        } else {
-          navigate('/login?registered=true');
-        }
-      } else {
-        setErrors({ general: response.error || 'Registration failed. Please try again.' });
-      }
-    } catch (error) {
-      setErrors({ general: error.message || 'An error occurred during registration.' });
-    } finally {
-      setLoading(false);
-    }
-=======
     setTimeout(() => { setLoading(false); navigate('/login?registered=true'); }, 1200);
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
   };
 
   const pwStrength = getPasswordStrength(form.password);
@@ -479,15 +394,6 @@ export function Register() {
             <div className="auth-progress-fill" style={{ width: `${step * 50}%` }} />
           </div>
 
-<<<<<<< HEAD
-          {errors.general && (
-            <div className="alert alert-danger" style={{ marginTop: 16, marginBottom: 16 }}>
-              {errors.general}
-            </div>
-          )}
-
-=======
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
           <form onSubmit={handleNext} noValidate style={{ marginTop: 24 }}>
             {step === 1 && <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>

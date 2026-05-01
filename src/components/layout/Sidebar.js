@@ -5,7 +5,6 @@ import {
   Bell, User, Settings, HelpCircle, LogOut,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-<<<<<<< HEAD
 import { useNotifications } from '../../context/NotificationContext';
 import './Sidebar.css';
 
@@ -28,33 +27,14 @@ export default function Sidebar({ isOpen, onClose }) {
     { icon: HelpCircle, label: 'Help & Support', path: '/help' },
   ];
 
-=======
-import { currentUser } from '../../data/mockData';
-import './Sidebar.css';
-
-const navItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
-  { icon: ArrowLeftRight, label: 'Transfer', path: '/transfer' },
-  { icon: Download, label: 'Deposit', path: '/deposit' },
-  { icon: ArrowUpFromLine, label: 'Withdraw', path: '/withdraw' },
-  { icon: List, label: 'Transactions', path: '/transactions' },
-  { icon: Bell, label: 'Notifications', path: '/notifications', badge: currentUser.notifications },
-  { icon: User, label: 'Profile', path: '/profile' },
-  { icon: Settings, label: 'Settings', path: '/settings' },
-  { icon: HelpCircle, label: 'Help & Support', path: '/help' },
-];
-
-export default function Sidebar({ isOpen, onClose }) {
-  const navigate = useNavigate();
-  const { logout } = useAuth();
-  const [loggingOut, setLoggingOut] = useState(false);
-  const [confirmLogout, setConfirmLogout] = useState(false);
-
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
   const handleLogout = () => {
     setLoggingOut(true);
     setTimeout(() => { logout(); navigate('/'); }, 800);
   };
+
+  const userInitial = user?.firstName ? user.firstName.charAt(0).toUpperCase() : 'N';
+  const userName = user?.firstName ? `${user.firstName} ${user.lastName}` : 'Guest';
+  const userAccNum = user?.id || '######';
 
   return (
     <>
@@ -66,19 +46,10 @@ export default function Sidebar({ isOpen, onClose }) {
         </div>
 
         <div className="sidebar-user">
-<<<<<<< HEAD
-          <div className="sidebar-user-avatar">{user?.initials || user?.firstName?.[0] || 'U'}</div>
+          <div className="sidebar-user-avatar">{userInitial}</div>
           <div className="sidebar-user-info">
-            <div className="sidebar-user-name">
-              {user
-                ? `${user.firstName || 'User'}${user.lastName ? ` ${user.lastName}` : ''}`.trim()
-                : 'User'}
-            </div>
-=======
-          <div className="sidebar-user-avatar">{currentUser.initials}</div>
-          <div className="sidebar-user-info">
-            <div className="sidebar-user-name">{currentUser.name}</div>
->>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
+            <div className="sidebar-user-name">{userName}</div>
+            <div className="sidebar-user-AccNum">{userAccNum.substring(0, 8).toUpperCase()}</div>
           </div>
         </div>
 

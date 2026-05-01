@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
@@ -9,8 +9,9 @@ import {
 import DashboardLayout from '../components/layout/DashboardLayout';
 import KYCBanner from '../components/KYCBanner';
 import { useKYC } from '../context/KYCContext';
+import { useAuth } from '../context/AuthContext';
 import { useWallet } from '../context/WalletContext';
-import { currentUser, chartData, formatCurrency, formatDate } from '../data/mockData';
+import { formatCurrency, formatDate } from '../utils/formatters';
 import './Dashboard.css';
 
 const quickActions = [
@@ -29,6 +30,7 @@ function getTxIcon(category) {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { kycStatus } = useKYC();
+  const { user } = useAuth();
   const { balance, transactions, hideBalance } = useWallet();
   const recentTx = transactions.slice(0, 5);
 
@@ -39,11 +41,69 @@ export default function Dashboard() {
   const totalIn = transactions.filter(t => t.type === 'credit').reduce((a, t) => a + t.amount, 0);
   const totalOut = transactions.filter(t => t.type === 'debit').reduce((a, t) => a + t.amount, 0);
 
+  const chartData = useMemo(() => {
+    const now = new Date();
+    const buckets = Array.from({ length: 6 }, (_, i) => {
+      const monthDate = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+      return {
+        month: monthDate.toLocaleString('en-US', { month: 'short' }),
+        income: 0,
+        expense: 0,
+      };
+    });
+
+    transactions.forEach(tx => {
+      const date = new Date(tx.date);
+      const bucket = buckets.find(b => b.month === date.toLocaleString('en-US', { month: 'short' }));
+      if (!bucket) return;
+      if (tx.type === 'credit') bucket.income += tx.amount;
+      else bucket.expense += tx.amount;
+    });
+
+    return buckets;
+  }, [transactions]);
+
+  const getDisplayName = (user) => {
+    if (!user) return 'User';
+    if (user.name) return user.name;
+    const firstName = user.firstName || user.first_name || '';
+    const lastName = user.lastName || user.last_name || '';
+    if (firstName || lastName) return `${firstName} ${lastName}`.trim();
+    if (user.email) return user.email.split('@')[0];
+    return 'User';
+  };
+
+  const getAccountNumber = (user) => user?.accountNumber || user?.walletAccountNumber || user?.account_number || '••••••••';
+
+  const userName = getDisplayName(user);
+  const accountNumber = getAccountNumber(user);
+
+  const currentMonthName = new Date().toLocaleString('en-US', { month: 'short' });
+  const currentYear = new Date().getFullYear();
+  const monthTx = transactions.filter((tx) => {
+    const date = new Date(tx.date);
+    return date.getMonth() === new Date().getMonth() && date.getFullYear() === currentYear;
+  });
+
+  const monthlyIncome = monthTx
+    .filter((tx) => tx.type === 'credit')
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+  const monthlyExpenses = monthTx
+    .filter((tx) => tx.type === 'debit')
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+  const cashbackEarned = monthTx
+    .filter((tx) => tx.type === 'credit' && (tx.category === 'cashback' || /cashback|reward/i.test(tx.description || '')))
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+  const transactionsThisMonth = monthTx.length;
+
   return (
     <DashboardLayout>
       <KYCBanner />
       <div className="page-header">
-        <h1>Good morning, {currentUser.name.split(' ')[0]} </h1>
+        <h1>{greeting}, {userName.split(' ')[0]}</h1>
         <p>Here's what's happening with your wallet today.</p>
       </div>
 
@@ -58,7 +118,7 @@ export default function Dashboard() {
               {kycStatus === 'verified' && (
                 <span className="balance-account-badge"><CheckCircle size={12} /> Verified</span>
               )}
-              <span className="balance-account-num">{currentUser.accountNumber}</span>
+              <span className="balance-account-num">{accountNumber}</span>
             </div>
           </div>
           <div className="balance-stats">
@@ -102,32 +162,32 @@ export default function Dashboard() {
           <div className="stat-icon" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
             <BarChart2 size={20} />
           </div>
-          <div className="stat-label">Transactions (Mar)</div>
-          <div className="stat-value">48</div>
-          <div className="stat-change text-success">↑ 12% from last month</div>
+          <div className="stat-label">Transactions ({currentMonthName})</div>
+          <div className="stat-value">{transactionsThisMonth}</div>
+          <div className="stat-change text-success">{transactionsThisMonth > 0 ? `Active this month` : 'No transactions yet'}</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'var(--success-light)', color: 'var(--success)' }}>
             <TrendingUp size={20} />
           </div>
           <div className="stat-label">Monthly Income</div>
-          <div className="stat-value">$10,700</div>
-          <div className="stat-change text-success">↑ 30% from Feb</div>
+          <div className="stat-value">{formatCurrency(monthlyIncome)}</div>
+          <div className="stat-change text-success">{monthlyIncome > 0 ? 'Based on current activity' : 'No income this month'}</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'var(--danger-light)', color: 'var(--danger)' }}>
             <TrendingDown size={20} />
           </div>
           <div className="stat-label">Monthly Expenses</div>
-          <div className="stat-value">$4,800</div>
-          <div className="stat-change text-danger">↑ 8% from Feb</div>
+          <div className="stat-value">{formatCurrency(monthlyExpenses)}</div>
+          <div className="stat-change text-danger">{monthlyExpenses > 0 ? 'Updated from transactions' : 'No expenses this month'}</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'var(--warning-light)', color: '#856404' }}>
             <Gift size={20} />
           </div>
           <div className="stat-label">Cashback Earned</div>
-          <div className="stat-value">$12.50</div>
+          <div className="stat-value">{formatCurrency(cashbackEarned)}</div>
           <div className="stat-change text-muted">This month</div>
         </div>
       </div>

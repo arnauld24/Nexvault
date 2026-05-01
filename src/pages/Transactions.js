@@ -8,13 +8,136 @@ import {
 } from 'lucide-react';
 import DashboardLayout from '../components/layout/DashboardLayout';
 import { useWallet } from '../context/WalletContext';
-import { formatCurrency, formatDate, formatTime } from '../data/mockData';
+import { useToast } from '../context/ToastContext';
+import apiClient from '../api/client';
+import { formatCurrency, formatDate, formatTime } from '../utils/formatters';
 import './Transactions.css';
 
 function TxIcon({ category, type }) {
+  const normalizedType = type || (category === 'deposit' ? 'credit' : category === 'withdrawal' ? 'debit' : 'credit');
   if (category === 'deposit') return <Banknote size={18} />;
-  if (category === 'transfer') return type === 'credit' ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />;
+  if (category === 'transfer') return normalizedType === 'credit' ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />;
+  if (category === 'withdrawal') return <ArrowUpRight size={18} />;
   return <RefreshCw size={18} />;
+}
+
+function escapeCsvValue(value) {
+  const text = value === undefined || value === null ? '' : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function downloadFile(filename, content, mimeType = 'text/csv') {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function downloadTransactionCsv(transactions) {
+  const headers = ['Date', 'Time', 'Type', 'Category', 'Description', 'Reference', 'From', 'To', 'Amount', 'Currency', 'Fee', 'Status'];
+  const rows = transactions.map(tx => [
+    formatDate(tx.date),
+    formatTime(tx.date),
+    tx.type || '',
+    tx.category || '',
+    tx.description || '',
+    tx.reference || '',
+    tx.from || '',
+    tx.to || '',
+    tx.amount != null ? tx.amount : '',
+    tx.currency || 'XAF',
+    tx.fee != null ? tx.fee : '',
+    tx.status || '',
+  ].map(escapeCsvValue).join(','));
+
+  const csv = [headers.join(','), ...rows].join('\n');
+  downloadFile(`nexvault-transactions-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+}
+
+function printTransactionReceipt(tx) {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Transaction Receipt</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #111; }
+        .receipt { max-width: 680px; margin: 0 auto; }
+        .heading { margin-bottom: 24px; }
+        .heading h1 { margin: 0; font-size: 24px; }
+        .details, .line-items { width: 100%; border-collapse: collapse; }
+        .details td, .line-items td { padding: 10px 8px; border-bottom: 1px solid #ddd; }
+        .details td.label { width: 35%; color: #555; }
+        .line-items td { padding: 12px 8px; }
+        .total { font-weight: 700; }
+      </style>
+    </head>
+    <body>
+      <div class="receipt">
+        <div class="heading">
+          <h1>NexVault Receipt</h1>
+          <p>Transaction reference: ${tx.reference || tx.id}</p>
+          <p>${formatDate(tx.date)} at ${formatTime(tx.date)}</p>
+        </div>
+        <table class="details">
+          <tr><td class="label">Description</td><td>${tx.description || tx.category}</td></tr>
+          <tr><td class="label">Type</td><td>${tx.type}</td></tr>
+          <tr><td class="label">Category</td><td>${tx.category}</td></tr>
+          <tr><td class="label">From</td><td>${tx.from || 'N/A'}</td></tr>
+          <tr><td class="label">To</td><td>${tx.to || 'N/A'}</td></tr>
+          <tr><td class="label">Amount</td><td>${formatCurrency(tx.amount, tx.currency || 'XAF')}</td></tr>
+          <tr><td class="label">Fee</td><td>${tx.fee ? formatCurrency(tx.fee, tx.currency || 'XAF') : 'Free'}</td></tr>
+          <tr><td class="label">Total</td><td class="total">${formatCurrency(Number(tx.amount || 0) + Number(tx.fee || 0), tx.currency || 'XAF')}</td></tr>
+          <tr><td class="label">Status</td><td>${tx.status}</td></tr>
+        </table>
+      </div>
+      <script>window.onload = function() { window.print(); }</script>
+    </body>
+    </html>
+  `;
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
+}
+
+async function emailTransactionReceipt(tx, toast) {
+  try {
+    const response = await apiClient.sendTransactionReceipt(tx.id);
+    if (response.success) {
+      toast('Receipt has been emailed successfully', 'success');
+    } else {
+      throw new Error(response.message || 'Unable to send receipt');
+    }
+  } catch (error) {
+    console.error('Email receipt error:', error);
+    toast(error.message || 'Failed to email receipt', 'error');
+  }
+}
+
+async function shareTransactionLink(tx, toast) {
+  const url = window.location.href;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'NexVault Transaction', text: 'View my transaction receipt', url });
+      return;
+    } catch (error) {
+      console.warn('Web share not completed:', error);
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('Transaction link copied to clipboard', 'success');
+  } catch (error) {
+    console.error('Share error:', error);
+    toast('Unable to copy link', 'error');
+  }
 }
 
 export function TransactionHistory() {
@@ -24,16 +147,27 @@ export function TransactionHistory() {
   const [filter, setFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  const normalizedSearch = search.trim().toLowerCase();
+
   const filtered = transactions.filter(t => {
-    const matchSearch = t.description.toLowerCase().includes(search.toLowerCase()) ||
-      t.reference.toLowerCase().includes(search.toLowerCase());
+    const description = (t.description || '').toString().toLowerCase();
+    const reference = (t.reference || '').toString().toLowerCase();
+    const from = (t.from || '').toString().toLowerCase();
+    const to = (t.to || '').toString().toLowerCase();
+    const category = (t.category || '').toString().toLowerCase();
+    const matchSearch = !normalizedSearch ||
+      description.includes(normalizedSearch) ||
+      reference.includes(normalizedSearch) ||
+      from.includes(normalizedSearch) ||
+      to.includes(normalizedSearch) ||
+      category.includes(normalizedSearch);
     const matchType = filter === 'all' || t.type === filter;
     const matchStatus = statusFilter === 'all' || t.status === statusFilter;
     return matchSearch && matchType && matchStatus;
   });
 
-  const totalCredits = filtered.filter(t => t.type === 'credit').reduce((a, t) => a + t.amount, 0);
-  const totalDebits = filtered.filter(t => t.type === 'debit').reduce((a, t) => a + t.amount, 0);
+  const totalCredits = filtered.filter(t => t.type === 'credit').reduce((a, t) => a + Number(t.amount || 0), 0);
+  const totalDebits = filtered.filter(t => t.type === 'debit').reduce((a, t) => a + Number(t.amount || 0), 0);
 
   return (
     <DashboardLayout>
@@ -43,7 +177,7 @@ export function TransactionHistory() {
             <h1>Transaction History</h1>
             <p>View and filter all your wallet activity.</p>
           </div>
-          <button className="btn btn-outline btn-sm">
+          <button className="btn btn-outline btn-sm" onClick={() => downloadTransactionCsv(filtered)}>
             <Download size={14} /> Export CSV
           </button>
         </div>
@@ -142,8 +276,8 @@ export function TransactionHistory() {
                           <TxIcon category={tx.category} type={tx.type} />
                         </div>
                         <div>
-                          <div style={{ fontWeight: 600, fontSize: 14 }}>{tx.description}</div>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{tx.reference}</div>
+                          <div style={{ fontWeight: 600, fontSize: 14 }}>{tx.description || tx.category || 'Transaction'}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{tx.reference || tx.category || 'No reference'}</div>
                         </div>
                       </div>
                     </td>
@@ -157,7 +291,7 @@ export function TransactionHistory() {
                         fontWeight: 700, fontFamily: 'var(--font-display)',
                         color: tx.type === 'credit' ? 'var(--success)' : 'var(--text-dark)', fontSize: 15,
                       }}>
-                        {tx.type === 'credit' ? '+' : '-'}{formatCurrency(tx.amount)}
+                        {((tx.type || tx.category) === 'credit' || (tx.category === 'deposit')) ? '+' : '-'}{formatCurrency(tx.amount, tx.currency || 'XAF')}
                       </span>
                     </td>
                     <td>
@@ -184,8 +318,24 @@ export function TransactionHistory() {
 export function TransactionDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const { transactions } = useWallet();
-  const tx = transactions.find(t => t.id === id) || transactions[0];
+  const [emailing, setEmailing] = useState(false);
+  const tx = transactions.find(t => String(t.id) === id || String(t.reference) === id);
+
+  if (!tx || !tx.type) {
+    return (
+      <DashboardLayout>
+        <div className="page-header">
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/transactions')} style={{ marginBottom: 12 }}>
+            <ArrowLeft size={14} /> Back to Transactions
+          </button>
+          <h1>Transaction Not Found</h1>
+          <p>The transaction you're looking for doesn't exist or has been deleted.</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -220,15 +370,15 @@ export function TransactionDetails() {
 
             <div className="tx-detail-rows">
               {[
-                { label: 'Transaction ID', value: tx.id.toUpperCase(), mono: true },
+                { label: 'Transaction ID', value: String(tx.id).toUpperCase(), mono: true },
                 { label: 'Reference', value: tx.reference, mono: true },
                 { label: 'Date & Time', value: `${formatDate(tx.date)} at ${formatTime(tx.date)}` },
                 { label: 'Category', value: <span className="tag">{tx.category}</span> },
                 { label: 'From', value: tx.from },
                 { label: 'To', value: tx.to },
-                { label: 'Amount', value: formatCurrency(tx.amount) },
-                { label: 'Transaction Fee', value: tx.fee > 0 ? formatCurrency(tx.fee) : 'Free' },
-                { label: 'Total', value: formatCurrency(tx.amount + tx.fee), highlight: true },
+                { label: 'Amount', value: formatCurrency(tx.amount, tx.currency || 'XAF') },
+                { label: 'Transaction Fee', value: tx.fee > 0 ? formatCurrency(tx.fee, tx.currency || 'XAF') : 'Free' },
+                { label: 'Total', value: formatCurrency(Number(tx.amount || 0) + Number(tx.fee || 0), tx.currency || 'XAF'), highlight: true },
                 ...(tx.note ? [{ label: 'Note', value: tx.note }] : []),
               ].map((row, i) => (
                 <div key={i} className="tx-detail-row">
@@ -274,13 +424,13 @@ export function TransactionDetails() {
           <div className="card tx-receipt-card">
             <h4>Receipt Actions</h4>
             <div className="receipt-actions">
-              <button className="btn btn-outline btn-full" style={{ justifyContent: 'flex-start', gap: 12 }}>
+              <button className="btn btn-outline btn-full" style={{ justifyContent: 'flex-start', gap: 12 }} onClick={() => printTransactionReceipt(tx)}>
                 <FileDown size={16} /> Download PDF Receipt
               </button>
-              <button className="btn btn-outline btn-full" style={{ justifyContent: 'flex-start', gap: 12 }}>
-                <Mail size={16} /> Email Receipt
+              <button className="btn btn-outline btn-full" style={{ justifyContent: 'flex-start', gap: 12 }} onClick={async () => { setEmailing(true); await emailTransactionReceipt(tx, toast); setEmailing(false); }}>
+                <Mail size={16} /> {emailing ? 'Emailing Receipt...' : 'Email Receipt'}
               </button>
-              <button className="btn btn-outline btn-full" style={{ justifyContent: 'flex-start', gap: 12 }}>
+              <button className="btn btn-outline btn-full" style={{ justifyContent: 'flex-start', gap: 12 }} onClick={() => shareTransactionLink(tx, toast)}>
                 <Share2 size={16} /> Share Transaction
               </button>
               {tx.status === 'failed' && (

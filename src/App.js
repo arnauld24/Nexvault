@@ -5,14 +5,18 @@ import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { KYCProvider } from './context/KYCContext';
 import { WalletProvider } from './context/WalletContext';
+import { NotificationProvider } from './context/NotificationContext';
 import PrivateRoute from './components/PrivateRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 
-const Landing          = lazy(() => import('./pages/Landing'));
+const Landing          = lazy(() => import('./pages/Landing').then(m => ({ default: m.Landing })));
+const LandingPage       = lazy(() => import('./pages/Landing').then(m => ({ default: m.LandingPage })));
 const Login            = lazy(() => import('./pages/Auth').then(m => ({ default: m.Login })));
 const Register         = lazy(() => import('./pages/Auth').then(m => ({ default: m.Register })));
+const Verify2FA        = lazy(() => import('./pages/Auth').then(m => ({ default: m.Verify2FA })));
 const KYCVerification  = lazy(() => import('./pages/KYC').then(m => ({ default: m.KYCVerification })));
 const KYCStatus        = lazy(() => import('./pages/KYC').then(m => ({ default: m.KYCStatus })));
+const KYCRouter        = lazy(() => import('./pages/KYC').then(m => ({ default: m.KYCRouter })));
 const Dashboard        = lazy(() => import('./pages/Dashboard'));
 const Transfer         = lazy(() => import('./pages/SendDeposit').then(m => ({ default: m.Transfer })));
 const Deposit          = lazy(() => import('./pages/SendDeposit').then(m => ({ default: m.Deposit })));
@@ -62,11 +66,12 @@ function AnimatedRoutes() {
     <div key={location.pathname} className="page-fade">
       <Suspense fallback={<PageLoader />}>
         <Routes>
-          <Route path="/"                  element={<Landing />} />
+          <Route path="/"                  element={<LandingPage />} />
           <Route path="/login"             element={<Login />} />
           <Route path="/register"          element={<Register />} />
-          <Route path="/kyc"               element={<KYCVerification />} />
-          <Route path="/kyc-status"        element={<KYCStatus />} />
+          <Route path="/verify-2fa"        element={<Verify2FA />} />
+          <Route path="/kyc"               element={<PrivateRoute><KYCRouter /></PrivateRoute>} />
+          <Route path="/kyc-status"        element={<PrivateRoute><KYCStatus /></PrivateRoute>} />
           <Route path="/dashboard"         element={<PrivateRoute><Dashboard /></PrivateRoute>} />
           <Route path="/transfer"           element={<PrivateRoute><Transfer /></PrivateRoute>} />
           <Route path="/deposit"           element={<PrivateRoute><Deposit /></PrivateRoute>} />
@@ -91,11 +96,13 @@ export default function App() {
       <AuthProvider>
         <KYCProvider>
           <WalletProvider>
-            <ToastProvider>
-              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-                <AnimatedRoutes />
-              </BrowserRouter>
-            </ToastProvider>
+            <NotificationProvider>
+              <ToastProvider>
+                <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                  <AnimatedRoutes />
+                </BrowserRouter>
+              </ToastProvider>
+            </NotificationProvider>
           </WalletProvider>
         </KYCProvider>
       </AuthProvider>
