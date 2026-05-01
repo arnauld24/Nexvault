@@ -5,7 +5,6 @@ import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { KYCProvider } from './context/KYCContext';
 import { WalletProvider } from './context/WalletContext';
-import { NotificationProvider } from './context/NotificationContext';
 import PrivateRoute from './components/PrivateRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -90,17 +89,15 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <WalletProvider>
-          <NotificationProvider>
-            <KYCProvider>
-              <ToastProvider>
-                <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-                  <AnimatedRoutes />
-                </BrowserRouter>
-              </ToastProvider>
-            </KYCProvider>
-          </NotificationProvider>
-        </WalletProvider>
+        <KYCProvider>
+          <WalletProvider>
+            <ToastProvider>
+              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <AnimatedRoutes />
+              </BrowserRouter>
+            </ToastProvider>
+          </WalletProvider>
+        </KYCProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

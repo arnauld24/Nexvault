@@ -242,35 +242,17 @@ export function KYCVerification() {
     return e;
   };
 
-  const handleNext = async () => {
+  const handleNext = () => {
     const e = validateStep();
     if (Object.keys(e).length) { setErrors(e); return; }
     setErrors({});
     if (step < 3) { setStep(s => s + 1); return; }
-
-    // Submit KYC with real API
     setLoading(true);
-    try {
-      const formData = {
-        idDocument: files.front,
-        passportDocument: docType === 'passport' ? files.front : null,
-        driversLicenseFront: docType === 'drivers_license' ? files.front : null,
-        driversLicenseBack: docType === 'drivers_license' ? files.back : null,
-        nationalIdFront: docType === 'national_id' ? files.front : null,
-        nationalIdBack: docType === 'national_id' ? files.back : null,
-        selfie: files.selfie,
-        addressProof: null, // Could add this later
-        // Personal info could be sent separately or stored in user profile
-      };
-
-      await submitKYC(formData);
-      navigate('/kyc-status');
-    } catch (error) {
-      console.error('KYC submission failed:', error);
-      setErrors({ submit: error.message || 'Failed to submit KYC. Please try again.' });
-    } finally {
+    setTimeout(() => {
       setLoading(false);
-    }
+      submitKYC();
+      navigate('/kyc-status');
+    }, 1800);
   };
 
   const steps = ['Personal Info', 'Document Upload', 'Selfie'];
@@ -432,89 +414,6 @@ export function KYCVerification() {
 
 export function KYCStatus() {
   const navigate = useNavigate();
-  const { kycStatus, kycDocuments, loading, error, refreshKycStatus } = useKYC();
-
-  useEffect(() => {
-    refreshKycStatus();
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="kyc-page">
-        <div className="kyc-container">
-          <div className="kyc-status-card animate-fade">
-            <div className="kyc-status-icon">
-              <span className="spinner" style={{ width: 36, height: 36 }} />
-            </div>
-            <h2>Loading KYC Status...</h2>
-            <p>Please wait while we check your verification status.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="kyc-page">
-        <div className="kyc-container">
-          <div className="kyc-status-card animate-fade">
-            <div className="kyc-status-icon error">
-              <X size={36} />
-            </div>
-            <h2>Unable to Load Status</h2>
-            <p>{error}</p>
-            <button className="btn btn-primary" onClick={refreshKycStatus}>
-              <RefreshCw size={16} /> Try Again
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const getStatusConfig = () => {
-    switch (kycStatus) {
-      case 'verified':
-        return {
-          icon: <CheckCircle size={36} />,
-          iconClass: 'verified',
-          title: 'Identity Verified!',
-          description: 'Your KYC verification is complete. All NexVault features are now unlocked for your account.',
-          items: ['Personal Information', 'Document Verification', 'Selfie Match', 'Sanctions Screening'],
-          showLimits: true,
-        };
-      case 'pending':
-        return {
-          icon: <RefreshCw size={36} />,
-          iconClass: 'pending',
-          title: 'Verification in Progress',
-          description: 'Your documents are being reviewed by our team. This usually takes 1-3 business days.',
-          items: ['Documents Submitted', 'Under Review', 'Email Notification Pending'],
-          showLimits: false,
-        };
-      case 'rejected':
-        return {
-          icon: <X size={36} />,
-          iconClass: 'rejected',
-          title: 'Verification Rejected',
-          description: 'Your documents could not be verified. Please check your email for details and resubmit.',
-          items: ['Documents Reviewed', 'Issues Found', 'Resubmission Required'],
-          showLimits: false,
-        };
-      default:
-        return {
-          icon: <Info size={36} />,
-          iconClass: 'unverified',
-          title: 'KYC Not Started',
-          description: 'You haven\'t started the KYC verification process yet.',
-          items: [],
-          showLimits: false,
-        };
-    }
-  };
-
-  const statusConfig = getStatusConfig();
 
   return (
     <div className="kyc-page">
@@ -527,68 +426,39 @@ export function KYCStatus() {
         </div>
 
         <div className="kyc-status-card animate-fade">
-          <div className={`kyc-status-icon ${statusConfig.iconClass}`}>
-            {statusConfig.icon}
+          <div className="kyc-status-icon verified"><CheckCircle size={36} /></div>
+          <h2>Identity Verified!</h2>
+          <p>Your KYC verification is complete. All NexVault features are now unlocked for your account.</p>
+
+          <div className="kyc-status-items">
+            {['Personal Information', 'Document Verification', 'Selfie Match', 'Sanctions Screening'].map((item, i) => (
+              <div key={i} className="kyc-status-item success">
+                <CheckCircle size={15} /> {item}
+              </div>
+            ))}
           </div>
-          <h2>{statusConfig.title}</h2>
-          <p>{statusConfig.description}</p>
 
-          {statusConfig.items.length > 0 && (
-            <div className="kyc-status-items">
-              {statusConfig.items.map((item, i) => (
-                <div key={i} className={`kyc-status-item ${kycStatus === 'verified' ? 'success' : kycStatus === 'pending' ? 'pending' : 'error'}`}>
-                  {kycStatus === 'verified' ? <CheckCircle size={15} /> :
-                   kycStatus === 'pending' ? <RefreshCw size={15} /> :
-                   <X size={15} />}
-                  {item}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {statusConfig.showLimits && (
-            <div className="kyc-limits">
-              <h4>Your Account Limits</h4>
-              <div className="kyc-limits-grid">
-                <div className="kyc-limit-item">
-                  <div className="kyc-limit-label">Daily Send Limit</div>
-                  <div className="kyc-limit-value">$50,000</div>
-                </div>
-                <div className="kyc-limit-item">
-                  <div className="kyc-limit-label">Monthly Volume</div>
-                  <div className="kyc-limit-value">$200,000</div>
-                </div>
-                <div className="kyc-limit-item">
-                  <div className="kyc-limit-label">Verified Since</div>
-                  <div className="kyc-limit-value">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-                </div>
+          <div className="kyc-limits">
+            <h4>Your Account Limits</h4>
+            <div className="kyc-limits-grid">
+              <div className="kyc-limit-item">
+                <div className="kyc-limit-label">Daily Send Limit</div>
+                <div className="kyc-limit-value">$50,000</div>
+              </div>
+              <div className="kyc-limit-item">
+                <div className="kyc-limit-label">Monthly Volume</div>
+                <div className="kyc-limit-value">$200,000</div>
+              </div>
+              <div className="kyc-limit-item">
+                <div className="kyc-limit-label">Verified Since</div>
+                <div className="kyc-limit-value">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
               </div>
             </div>
-          )}
+          </div>
 
-          {kycStatus === 'rejected' && (
-            <button className="btn btn-primary btn-lg btn-full" onClick={() => navigate('/kyc')}>
-              Resubmit Documents <ArrowRight size={16} />
-            </button>
-          )}
-
-          {kycStatus === 'verified' && (
-            <button className="btn btn-primary btn-lg btn-full" onClick={() => navigate('/dashboard')}>
-              Go to Dashboard <ArrowRight size={16} />
-            </button>
-          )}
-
-          {kycStatus === 'pending' && (
-            <button className="btn btn-outline btn-lg btn-full" onClick={refreshKycStatus}>
-              <RefreshCw size={16} /> Check Status Again
-            </button>
-          )}
-
-          {kycStatus === 'unverified' && (
-            <button className="btn btn-primary btn-lg btn-full" onClick={() => navigate('/kyc')}>
-              Start Verification <ArrowRight size={16} />
-            </button>
-          )}
+          <button className="btn btn-primary btn-lg btn-full" onClick={() => navigate('/dashboard')}>
+            Go to Dashboard <ArrowRight size={16} />
+          </button>
         </div>
       </div>
     </div>

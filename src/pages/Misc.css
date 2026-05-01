@@ -68,19 +68,6 @@
   margin-top: 6px;
 }
 
-.notif-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.notif-delete-btn {
-  border-radius: 8px;
-  min-width: 40px;
-  padding: 8px;
-}
-
 /* ─── PROFILE ─── */
 .profile-layout {
   display: grid;

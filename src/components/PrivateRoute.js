@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function PrivateRoute({ children }) {
+<<<<<<< HEAD
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
@@ -18,6 +19,11 @@ export default function PrivateRoute({ children }) {
     );
   }
 
+=======
+  const { isAuthenticated } = useAuth();
+  const location = useLocation();
+
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }

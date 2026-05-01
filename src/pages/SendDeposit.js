@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import React, { useState, useEffect } from 'react';
+=======
+import React, { useState } from 'react';
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
 import { useNavigate } from 'react-router-dom';
 import {
   CheckCircle, ArrowLeft, ArrowLeftRight, Landmark, CreditCard,
@@ -10,6 +14,7 @@ import DashboardLayout from '../components/layout/DashboardLayout';
 import { KYCGate } from '../components/KYCBanner';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
+<<<<<<< HEAD
 import apiClient from '../api/client';
 import { formatCurrency } from '../utils/formatters';
 import './SendDeposit.css';
@@ -28,6 +33,12 @@ function getContactColor(seed) {
   return CONTACT_COLORS[hash % CONTACT_COLORS.length];
 }
 
+=======
+import { api } from '../api/mockApi';
+import { contacts, currentUser, formatCurrency } from '../data/mockData';
+import './SendDeposit.css';
+
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
 /* ─── Shared success screen ─── */
 function SuccessScreen({ title, subtitle, amount, reference, status, onViewTx, onAgain, againLabel }) {
   return (
@@ -66,14 +77,23 @@ function AmountInput({ value, onChange, balance, quickAmounts }) {
     <div className="fin-amount-block">
       <div className="fin-amount-input-wrap">
         <div className="fin-currency-badge">
+<<<<<<< HEAD
           <span className="fin-currency-flag">cm</span>
           <span>FCFA</span>
+=======
+          <span className="fin-currency-flag">🇺🇸</span>
+          <span>USD</span>
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
           <ChevronDown size={14} />
         </div>
         <input
           type="number"
           className="fin-amount-input"
+<<<<<<< HEAD
           placeholder="100.00"
+=======
+          placeholder="0.00"
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
           value={value}
           onChange={e => onChange(e.target.value)}
           min="0"
@@ -84,13 +104,21 @@ function AmountInput({ value, onChange, balance, quickAmounts }) {
           <Wallet size={13} /> Available: <strong>{formatCurrency(balance)}</strong>
         </span>
         {value && parseFloat(value) > 0 && (
+<<<<<<< HEAD
           <span className="fin-amoun">≈ {formatCurrency(parseFloat(value))}</span>
+=======
+          <span className="fin-amount-usd">≈ {formatCurrency(parseFloat(value))}</span>
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
         )}
       </div>
       <div className="fin-quick-amounts">
         {quickAmounts.map(v => (
           <button key={v} className={`fin-quick-btn ${value === String(v) ? 'active' : ''}`} onClick={() => onChange(String(v))}>
+<<<<<<< HEAD
             {v} FCFA
+=======
+            ${v}
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
           </button>
         ))}
         <button className={`fin-quick-btn ${value === String(balance) ? 'active' : ''}`} onClick={() => onChange(String(balance))}>
@@ -109,9 +137,12 @@ export function Transfer() {
   const [step, setStep] = useState(1);
   const [selected, setSelected] = useState(null);
   const [search, setSearch] = useState('');
+<<<<<<< HEAD
   const [contacts, setContacts] = useState([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [searchError, setSearchError] = useState(null);
+=======
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
   const [form, setForm] = useState({ recipient: '', amount: '', note: '' });
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -124,6 +155,7 @@ export function Transfer() {
   const fee = 0.50;
   const total = (parseFloat(form.amount) || 0) + fee;
 
+<<<<<<< HEAD
   useEffect(() => {
     const timer = setTimeout(() => {
       const fetchUsers = async () => {
@@ -166,6 +198,22 @@ export function Transfer() {
         recipientContact?.name || form.recipient,
         form.recipient,
         form.note
+=======
+  const handleConfirm = async () => {
+    setLoading(true);
+    try {
+      const res = await api.initiateTransfer({
+        amount: parseFloat(form.amount),
+        recipientEmail: form.recipient,
+        note: form.note,
+      });
+      transfer(
+        parseFloat(form.amount),
+        recipientContact?.name || form.recipient,
+        form.recipient,
+        form.note,
+        res.reference
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
       );
       setResult(res);
       toast('Transfer sent successfully!', 'success');
@@ -239,6 +287,7 @@ export function Transfer() {
                         {selected === c.id && <div className="fin-contact-check"><CheckCircle size={16} /></div>}
                       </button>
                     ))}
+<<<<<<< HEAD
                     {loadingContacts && (
                       <div className="fin-contact-empty">Searching for recipients...</div>
                     )}
@@ -248,6 +297,8 @@ export function Transfer() {
                     {!loadingContacts && !searchError && filtered.length === 0 && (
                       <div className="fin-contact-empty">No recipients found. Try another name or email, or enter manually.</div>
                     )}
+=======
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
                   </div>
                   <div className="fin-divider-label">or enter manually</div>
                   <div className="form-group">
@@ -275,7 +326,11 @@ export function Transfer() {
                     </div>
                     <BadgeCheck size={16} style={{ color: 'var(--success)', marginLeft: 'auto' }} />
                   </div>
+<<<<<<< HEAD
                   <AmountInput value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))} balance={balance} quickAmounts={[100, 200, 500, 1000]} />
+=======
+                  <AmountInput value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))} balance={balance} quickAmounts={[50, 100, 250, 500]} />
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
                   <div className="form-group" style={{ marginTop: 16 }}>
                     <label className="form-label">Note <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
                     <input className="form-control" placeholder="What's this for?" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} />
@@ -336,8 +391,13 @@ export function Transfer() {
               <div className="fin-info-card" style={{ marginTop: 14 }}>
                 <div className="fin-info-title"><Shield size={14} /> Limits</div>
                 <div className="fin-info-rows">
+<<<<<<< HEAD
                   <div className="fin-info-row"><span>Daily limit</span><span>50,000 FCFA</span></div>
                   <div className="fin-info-row"><span>Per transaction</span><span>10,000 FCFA</span></div>
+=======
+                  <div className="fin-info-row"><span>Daily limit</span><span>$50,000</span></div>
+                  <div className="fin-info-row"><span>Per transaction</span><span>$10,000</span></div>
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
                 </div>
               </div>
             </div>
@@ -360,7 +420,11 @@ export function Deposit() {
   const [copied, setCopied] = useState('');
 
   // Generate a unique deposit reference when the page loads — user needs this BEFORE going to their bank
+<<<<<<< HEAD
   const [depositRef] = useState(() => `DEP-${Date.now().toString().slice(-8)}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`);
+=======
+  const [depositRef] = useState(() => `DEP-${currentUser.accountNumber}-${Date.now().toString().slice(-6)}`);
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
 
   const [cardForm, setCardForm] = useState({ number: '', expiry: '', cvv: '', name: '' });
 
@@ -378,9 +442,16 @@ export function Deposit() {
   const handleDeposit = async () => {
     setLoading(true);
     try {
+<<<<<<< HEAD
       const res = await deposit(parseFloat(amount), method, method === 'bank' ? depositRef : undefined);
       setResult({ ...res, reference: res.transaction?.reference || res.reference });
       toast(res.message || 'Deposit processed successfully', 'success');
+=======
+      const res = await api.initiateDeposit({ amount: parseFloat(amount), method });
+      deposit(parseFloat(amount), methods.find(m => m.id === method)?.label, method === 'bank' ? depositRef : res.reference);
+      setResult({ ...res, reference: method === 'bank' ? depositRef : res.reference });
+      toast(res.message, 'success');
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -539,8 +610,13 @@ export function Deposit() {
                 <div className="fin-info-title"><Shield size={14} /> Secure & Protected</div>
                 <div className="fin-info-rows">
                   <div className="fin-info-row"><span>Encryption</span><span>AES-256</span></div>
+<<<<<<< HEAD
                   <div className="fin-info-row"><span>Max deposit</span><span>100,000 FCFA</span></div>
                   <div className="fin-info-row"><span>Min deposit</span><span>1.00 FCFA</span></div>
+=======
+                  <div className="fin-info-row"><span>Max deposit</span><span>$100,000</span></div>
+                  <div className="fin-info-row"><span>Min deposit</span><span>$1.00</span></div>
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
                 </div>
               </div>
               <div className="fin-info-card" style={{ marginTop: 14 }}>
@@ -575,7 +651,15 @@ export function Withdraw() {
   const handleConfirm = async () => {
     setLoading(true);
     try {
+<<<<<<< HEAD
       const res = await withdraw(parseFloat(amount), bankForm.bankName, bankForm.accountNumber);
+=======
+      const res = await api.initiateWithdrawal({
+        amount: parseFloat(amount),
+        bankDetails: bankForm,
+      });
+      withdraw(parseFloat(amount), bankForm.bankName, bankForm.accountNumber, res.reference);
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
       setResult(res);
       toast('Withdrawal submitted successfully!', 'success');
     } catch (err) {
@@ -708,9 +792,15 @@ export function Withdraw() {
               <div className="fin-info-card">
                 <div className="fin-info-title"><Shield size={14} /> Withdrawal Limits</div>
                 <div className="fin-info-rows">
+<<<<<<< HEAD
                   <div className="fin-info-row"><span>Daily limit</span><span>50,000 FCFA</span></div>
                   <div className="fin-info-row"><span>Monthly limit</span><span>200,000 FCFA</span></div>
                   <div className="fin-info-row"><span>Min withdrawal</span><span>10.00 FCFA</span></div>
+=======
+                  <div className="fin-info-row"><span>Daily limit</span><span>$50,000</span></div>
+                  <div className="fin-info-row"><span>Monthly limit</span><span>$200,000</span></div>
+                  <div className="fin-info-row"><span>Min withdrawal</span><span>$10.00</span></div>
+>>>>>>> ec2b1053c5f7048b5abbc6c93b3702001479646e
                 </div>
               </div>
               <div className="fin-info-card" style={{ marginTop: 14 }}>

@@ -2,9 +2,7 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Menu, Bell, ChevronRight, Home } from 'lucide-react';
 import { useWallet } from '../../context/WalletContext';
-import { useAuth } from '../../context/AuthContext';
-import { useNotifications } from '../../context/NotificationContext';
-import { formatCurrency } from '../../utils/formatters';
+import { currentUser, formatCurrency } from '../../data/mockData';
 import './Navbar.css';
 
 const pageLabels = {
@@ -24,8 +22,6 @@ export default function Navbar({ onMenuToggle }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { balance, hideBalance } = useWallet();
-  const { user } = useAuth();
-  const { unreadCount } = useNotifications();
   const pathParts = location.pathname.split('/').filter(Boolean);
 
   return (
@@ -57,15 +53,15 @@ export default function Navbar({ onMenuToggle }) {
         {/* Notifications */}
         <button className="navbar-icon-btn" onClick={() => navigate('/notifications')} aria-label="Notifications">
           <Bell size={18} />
-          {unreadCount > 0 && (
-            <span className="navbar-notif-dot">{unreadCount}</span>
+          {currentUser.notifications > 0 && (
+            <span className="navbar-notif-dot">{currentUser.notifications}</span>
           )}
         </button>
 
         {/* Avatar */}
         <button className="navbar-avatar" onClick={() => navigate('/profile')}>
-          <span>{user?.initials || user?.firstName?.[0] || 'U'}</span>
-          <span className="navbar-avatar-name hide-mobile">{user?.firstName || user?.email?.split('@')[0] || 'User'}</span>
+          <span>{currentUser.initials}</span>
+          <span className="navbar-avatar-name hide-mobile">{currentUser.name.split(' ')[0]}</span>
         </button>
       </div>
     </header>

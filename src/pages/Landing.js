@@ -7,7 +7,6 @@ import {
   Mail, HelpCircle, Menu, X,
 } from 'lucide-react';
 import { FaTwitter, FaGithub, FaLinkedinIn, FaInstagram } from 'react-icons/fa';
-import { useAuth } from '../context/AuthContext';
 import './Landing.css';
 
 const features = [
@@ -95,16 +94,8 @@ const mockTransactions = [
 
 export default function Landing() {
   const navigate = useNavigate();
-  const { isAuthenticated, isLoading } = useAuth();
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  // Redirect already-authenticated users to dashboard
-  useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      navigate('/dashboard', { replace: true });
-    }
-  }, [isAuthenticated, isLoading, navigate]);
 
   const navLinks = [
     { label: 'Features', href: '#features' },

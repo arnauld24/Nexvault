@@ -5,32 +5,8 @@ import {
   Search, Download, UserPlus, Eye, Pencil, ShieldCheck,
 } from 'lucide-react';
 import DashboardLayout from '../components/layout/DashboardLayout';
-import { formatCurrency } from '../utils/formatters';
+import { adminUsers, adminStats, chartData, formatCurrency } from '../data/mockData';
 import './Admin.css';
-
-// Placeholder admin data - in real app this would come from API
-const adminUsers = [
-  { id: 1, name: 'John Doe', email: 'john@example.com', status: 'active', kyc: 'verified', balance: 12000, transactions: 72, joined: 'Jan 15, 2024' },
-  { id: 2, name: 'Jane Smith', email: 'jane@example.com', status: 'active', kyc: 'pending', balance: 8600, transactions: 54, joined: 'Feb 20, 2024' },
-];
-
-const adminStats = {
-  totalUsers: 1250,
-  activeUsers: 980,
-  totalTransactions: 5000,
-  totalVolume: 250000,
-  pendingKyc: 15,
-  monthlyGrowth: 8.5,
-};
-
-const chartData = [
-  { month: 'Jan', users: 120, transactions: 450 },
-  { month: 'Feb', users: 150, transactions: 520 },
-  { month: 'Mar', users: 180, transactions: 600 },
-  { month: 'Apr', users: 200, transactions: 680 },
-  { month: 'May', users: 220, transactions: 750 },
-  { month: 'Jun', users: 250, transactions: 820 },
-];
 
 const volumeData = [
   { day: 'Mon', volume: 420000 },

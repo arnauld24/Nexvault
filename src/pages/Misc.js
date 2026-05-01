@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CheckCheck, Bell, ShieldCheck, Star, Camera, Pencil, X,
@@ -10,23 +10,16 @@ import {
 import DashboardLayout from '../components/layout/DashboardLayout';
 import { useKYC } from '../context/KYCContext';
 import { useWallet } from '../context/WalletContext';
-import { useNotifications } from '../context/NotificationContext';
-import { useAuth } from '../context/AuthContext';
-import apiClient from '../api/client';
+import { notifications as notifData, currentUser } from '../data/mockData';
 import './Misc.css';
 
 /* ─── NOTIFICATIONS ─── */
 export function Notifications() {
-  const {
-    notifications,
-    unreadCount,
-    loading,
-    error,
-    markAsRead,
-    markAllAsRead,
-    deleteNotification,
-    refreshNotifications
-  } = useNotifications();
+  const [notifs, setNotifs] = useState(notifData);
+
+  const markAllRead = () => setNotifs(n => n.map(x => ({ ...x, read: true })));
+  const markRead = (id) => setNotifs(n => n.map(x => x.id === id ? { ...x, read: true } : x));
+  const unread = notifs.filter(n => !n.read).length;
 
   const notifIconMap = {
     success: <CheckCircle size={18} />,
@@ -35,87 +28,32 @@ export function Notifications() {
     danger: <X size={18} />,
   };
 
-  const handleDeleteNotification = (event, notificationId) => {
-    event.stopPropagation();
-    deleteNotification(notificationId);
-  };
-
-  if (loading) {
-    return (
-      <DashboardLayout>
-        <div className="page-header">
-          <h1>Notifications</h1>
-          <p>Loading notifications...</p>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
-          <span className="spinner" />
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (error) {
-    return (
-      <DashboardLayout>
-        <div className="page-header">
-          <h1>Notifications</h1>
-          <p>Failed to load notifications.</p>
-        </div>
-        <div style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--danger)', marginBottom: '16px' }}>{error}</p>
-          <button className="btn btn-primary" onClick={refreshNotifications}>
-            Try Again
-          </button>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
   return (
     <DashboardLayout>
       <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
           <h1>Notifications</h1>
-          <p>{unreadCount > 0 ? `You have ${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}.` : 'All caught up!'}</p>
+          <p>{unread > 0 ? `You have ${unread} unread notification${unread > 1 ? 's' : ''}.` : 'All caught up!'}</p>
         </div>
-        {unreadCount > 0 && (
-          <button className="btn btn-ghost btn-sm" onClick={markAllAsRead}>
+        {unread > 0 && (
+          <button className="btn btn-ghost btn-sm" onClick={markAllRead}>
             <CheckCheck size={14} /> Mark all as read
           </button>
         )}
       </div>
 
       <div className="notif-list animate-fade">
-        {notifications.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-            <Bell size={48} style={{ opacity: 0.5, marginBottom: '16px' }} />
-            <p>No notifications yet.</p>
-          </div>
-        ) : (
-          notifications.map(n => {
-            const isSynthetic = String(n.id).startsWith('tx-');
-            return (
-              <div key={n.id} className={`notif-item card ${!n.read ? 'unread' : ''}`} onClick={() => !isSynthetic && markAsRead(n.id)}>
-              <div className={`notif-icon notif-icon-${n.type}`}>{notifIconMap[n.type] || <Bell size={18} />}</div>
-              <div className="notif-content">
-                <div className="notif-title">{n.title}</div>
-                <div className="notif-message">{n.message}</div>
-                <div className="notif-time">{n.createdAt ? new Date(n.createdAt).toLocaleString() : 'Just now'}</div>
-              </div>
-              <div className="notif-actions">
-                {!n.read && <div className="notif-dot" />}
-                <button
-                  className="btn btn-ghost btn-sm notif-delete-btn"
-                  onClick={(event) => handleDeleteNotification(event, n.id)}
-                  aria-label="Delete notification"
-                  title="Delete notification"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
+        {notifs.map(n => (
+          <div key={n.id} className={`notif-item card ${!n.read ? 'unread' : ''}`} onClick={() => markRead(n.id)}>
+            <div className={`notif-icon notif-icon-${n.type}`}>{notifIconMap[n.type] || <Bell size={18} />}</div>
+            <div className="notif-content">
+              <div className="notif-title">{n.title}</div>
+              <div className="notif-message">{n.message}</div>
+              <div className="notif-time">{n.time}</div>
             </div>
-            );
-          }) )}
+            {!n.read && <div className="notif-dot" />}
+          </div>
+        ))}
       </div>
     </DashboardLayout>
   );
@@ -125,368 +63,32 @@ export function Notifications() {
 export function Profile() {
   const [editing, setEditing] = useState(false);
   const { kycStatus } = useKYC();
-  const { user, updateUser } = useAuth();
-  const { addNotification } = useNotifications();
   const navigate = useNavigate();
   const [photo, setPhoto] = useState(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef = React.useRef();
   const [form, setForm] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    address: '',
-    country: '',
+    name: currentUser.name,
+    email: currentUser.email,
+    phone: currentUser.phone,
+    address: currentUser.address,
   });
   const [saved, setSaved] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [saving, setSaving] = useState(false);
 
-  // Modals
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [showTwoFAModal, setShowTwoFAModal] = useState(false);
-  const [twoFAStatus, setTwoFAStatus] = useState(null);
-  const [loadingTwoFA, setLoadingTwoFA] = useState(false);
-
-  // Password modal state
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-  });
-  const [passwordErrors, setPasswordErrors] = useState({});
-  const [changingPassword, setChangingPassword] = useState(false);
-
-  // 2FA modal state
-  const [twoFAMethod, setTwoFAMethod] = useState('email');
-  const [enabling2FA, setEnabling2FA] = useState(false);
-  const [disabling2FA, setDisabling2FA] = useState(false);
-  const [twoFACode, setTwoFACode] = useState('');
-
-  // Fetch profile data once after login
-  useEffect(() => {
-    if (!user?.id) {
-      return;
-    }
-
-    const fetchProfile = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const response = await apiClient.getUserProfile();
-        const profileData = response.user;
-
-        setPhoto(profileData.avatarUrl || null);
-        setForm({
-          name: `${profileData.firstName || ''} ${profileData.lastName || ''}`.trim(),
-          email: profileData.email || '',
-          phone: profileData.phoneNumber || '',
-          address: profileData.city || '',
-          country: profileData.country || '',
-        });
-
-        // Fetch 2FA status - don't fail if it errors
-        try {
-          const twoFARes = await apiClient.get2FAStatus();
-          setTwoFAStatus({
-            enabled: twoFARes.twoFactorEnabled || false,
-            method: twoFARes.twoFactorMethod || null,
-          });
-        } catch (err) {
-          console.warn('Failed to fetch 2FA status:', err);
-          setTwoFAStatus({ enabled: false, method: null });
-        }
-
-        const profileUpdates = {};
-        if (profileData.firstName && profileData.firstName !== user.firstName) profileUpdates.firstName = profileData.firstName;
-        if (profileData.lastName && profileData.lastName !== user.lastName) profileUpdates.lastName = profileData.lastName;
-        if (profileData.email && profileData.email !== user.email) profileUpdates.email = profileData.email;
-        if (profileData.phoneNumber && profileData.phoneNumber !== user.phone) profileUpdates.phone = profileData.phoneNumber;
-        if (profileData.country && profileData.country !== user.country) profileUpdates.country = profileData.country;
-        if (profileData.city && profileData.city !== user.city) profileUpdates.city = profileData.city;
-
-        if (Object.keys(profileUpdates).length > 0) {
-          updateUser(profileUpdates);
-        }
-      } catch (err) {
-        console.error('Failed to fetch profile:', err);
-        setError('Failed to load profile data. Please try again.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProfile();
-  }, [user?.id, updateUser]);
-
-  const handlePhotoUpload = async (file) => {
-    if (!file) return;
-
-    try {
-      setUploadingPhoto(true);
-      setError(null);
-
-      // Convert image to base64 or URL
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const avatarUrl = reader.result;
-        setPhoto(avatarUrl);
-
-        // Save to database
-        const response = await apiClient.updateAvatar(avatarUrl);
-
-        if (response.success) {
-          addNotification({
-            id: Date.now(),
-            type: 'success',
-            title: 'Avatar Updated',
-            message: 'Your profile photo has been updated successfully.',
-            read: false,
-            createdAt: new Date(),
-          });
-
-          updateUser({ avatarUrl });
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error('Failed to upload photo:', err);
-      setError('Failed to upload photo. Please try again.');
-      addNotification({
-        id: Date.now(),
-        type: 'danger',
-        title: 'Upload Failed',
-        message: 'Failed to upload your profile photo.',
-        read: false,
-        createdAt: new Date(),
-      });
-    } finally {
-      setUploadingPhoto(false);
-    }
-  };
-
-  const handleSave = async () => {
-    try {
-      setSaving(true);
-      setError(null);
-
-      const nameParts = form.name.trim().split(' ');
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
-
-      const updateData = {
-        firstName,
-        lastName,
-        phoneNumber: form.phone,
-        city: form.address,
-        country: form.country,
-      };
-
-      const response = await apiClient.updateUserProfile(updateData);
-
-      updateUser({
-        firstName: response.user.firstName,
-        lastName: response.user.lastName,
-        phone: response.user.phoneNumber,
-        country: response.user.country,
-        city: response.user.city,
-      });
-
-      setSaved(true);
-      setEditing(false);
-
-      addNotification({
-        id: Date.now(),
-        type: 'success',
-        title: 'Profile Updated',
-        message: 'Your profile has been updated successfully.',
-        read: false,
-        createdAt: new Date(),
-      });
-
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err) {
-      console.error('Failed to update profile:', err);
-      setError('Failed to update profile. Please try again.');
-      addNotification({
-        id: Date.now(),
-        type: 'danger',
-        title: 'Update Failed',
-        message: 'Failed to update your profile. Please try again.',
-        read: false,
-        createdAt: new Date(),
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const validatePasswordForm = () => {
-    const errors = {};
-    if (!passwordForm.currentPassword) errors.currentPassword = 'Current password is required';
-    if (!passwordForm.newPassword) errors.newPassword = 'New password is required';
-    if (passwordForm.newPassword.length < 8) errors.newPassword = 'Password must be at least 8 characters';
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) errors.confirmPassword = 'Passwords do not match';
-    if (passwordForm.currentPassword === passwordForm.newPassword) errors.newPassword = 'New password must be different';
-
-    setPasswordErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleChangePassword = async () => {
-    if (!validatePasswordForm()) return;
-
-    try {
-      setChangingPassword(true);
-      setError(null);
-
-      const response = await apiClient.changePassword(
-        passwordForm.currentPassword,
-        passwordForm.newPassword
-      );
-
-      if (response.success) {
-        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-        setShowPasswordModal(false);
-
-        addNotification({
-          id: Date.now(),
-          type: 'success',
-          title: 'Password Changed',
-          message: 'Your password has been changed successfully. Please log in again.',
-          read: false,
-          createdAt: new Date(),
-        });
-
-        // Redirect to login after short delay
-        setTimeout(() => navigate('/login'), 2000);
-      }
-    } catch (err) {
-      console.error('Failed to change password:', err);
-      setError(err.message || 'Failed to change password. Please try again.');
-      addNotification({
-        id: Date.now(),
-        type: 'danger',
-        title: 'Password Change Failed',
-        message: err.message || 'Failed to change your password.',
-        read: false,
-        createdAt: new Date(),
-      });
-    } finally {
-      setChangingPassword(false);
-    }
-  };
-
-  const handleEnable2FA = async () => {
-    try {
-      setEnabling2FA(true);
-      setError(null);
-
-      const response = await apiClient.enable2FA(twoFAMethod);
-
-      if (response.success) {
-        setTwoFAStatus({
-          enabled: true,
-          method: twoFAMethod,
-        });
-
-        addNotification({
-          id: Date.now(),
-          type: 'success',
-          title: '2FA Enabled',
-          message: `Two-factor authentication enabled via ${twoFAMethod}.`,
-          read: false,
-          createdAt: new Date(),
-        });
-      }
-    } catch (err) {
-      console.error('Failed to enable 2FA:', err);
-      addNotification({
-        id: Date.now(),
-        type: 'danger',
-        title: '2FA Setup Failed',
-        message: err.message || 'Failed to enable 2FA.',
-        read: false,
-        createdAt: new Date(),
-      });
-    } finally {
-      setEnabling2FA(false);
-    }
-  };
-
-  const handleDisable2FA = async () => {
-    try {
-      setDisabling2FA(true);
-      setError(null);
-
-      const response = await apiClient.disable2FA(twoFACode);
-
-      if (response.success) {
-        setTwoFAStatus({
-          enabled: false,
-          method: null,
-        });
-        setTwoFACode('');
-
-        addNotification({
-          id: Date.now(),
-          type: 'success',
-          title: '2FA Disabled',
-          message: 'Two-factor authentication has been disabled.',
-          read: false,
-          createdAt: new Date(),
-        });
-      }
-    } catch (err) {
-      console.error('Failed to disable 2FA:', err);
-      addNotification({
-        id: Date.now(),
-        type: 'danger',
-        title: '2FA Disable Failed',
-        message: err.message || 'Failed to disable 2FA.',
-        read: false,
-        createdAt: new Date(),
-      });
-    } finally {
-      setDisabling2FA(false);
-    }
+  const handleSave = () => {
+    setSaved(true);
+    setEditing(false);
+    setTimeout(() => setSaved(false), 3000);
   };
 
   const kycLabel = kycStatus === 'verified' ? 'Fully Verified ✓' : kycStatus === 'pending' ? 'Under Review' : 'Not Verified';
   const kycOk = kycStatus === 'verified';
 
-  if (loading) {
-    return (
-      <DashboardLayout>
-        <div className="page-header">
-          <h1>My Profile</h1>
-          <p>Loading profile...</p>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
-          <span className="spinner" />
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (error && !user) {
-    return (
-      <DashboardLayout>
-        <div className="page-header">
-          <h1>My Profile</h1>
-          <p>Failed to load profile.</p>
-        </div>
-        <div style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--danger)', marginBottom: '16px' }}>{error}</p>
-          <button className="btn btn-primary" onClick={() => window.location.reload()}>
-            Try Again
-          </button>
-        </div>
-      </DashboardLayout>
-    );
-  }
+  const securityItems = [
+    { label: 'Password', value: 'Last changed 30 days ago', action: 'Change', ok: true },
+    { label: '2-Factor Auth', value: 'Enabled via Authenticator App', action: 'Manage', ok: true },
+    { label: 'KYC Verification', value: kycLabel, action: kycStatus === 'unverified' ? 'Verify' : 'View', ok: kycOk },
+    { label: 'Login Devices', value: '2 active sessions', action: 'Review', ok: false },
+  ];
 
   return (
     <DashboardLayout>
@@ -496,7 +98,6 @@ export function Profile() {
       </div>
 
       {saved && <div className="alert alert-success animate-fade"><CheckCircle size={14} /> Profile updated successfully.</div>}
-      {error && <div className="alert alert-danger animate-fade">{error}</div>}
 
       <div className="profile-layout animate-fade">
         <div>
@@ -504,11 +105,11 @@ export function Profile() {
             <div className="profile-avatar">
               {photo
                 ? <img src={photo} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                : <span>{user?.initials || user?.firstName?.[0] || 'U'}</span>
+                : <span>{currentUser.initials}</span>
               }
               <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }}
-                onChange={e => { const f = e.target.files[0]; if (f) handlePhotoUpload(f); }} />
-              <button className="profile-avatar-edit" aria-label="Change photo" onClick={() => photoInputRef.current.click()} disabled={uploadingPhoto}>
+                onChange={e => { const f = e.target.files[0]; if (f) setPhoto(URL.createObjectURL(f)); }} />
+              <button className="profile-avatar-edit" aria-label="Change photo" onClick={() => photoInputRef.current.click()}>
                 <Camera size={14} />
               </button>
             </div>
@@ -518,11 +119,7 @@ export function Profile() {
             <div className="profile-meta">
               <div className="profile-meta-item">
                 <span className="profile-meta-label">Account #</span>
-                <span className="profile-meta-value font-mono">{user?.id?.substring(0, 8).toUpperCase() || 'NV-XXXX'}</span>
-              </div>
-              <div className="profile-meta-item">
-                <span className="profile-meta-label">Member Since</span>
-                <span className="profile-meta-value">{user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '2024-01-01'}</span>
+                <span className="profile-meta-value font-mono">{currentUser.accountNumber}</span>
               </div>
               <div className="profile-meta-item">
                 <span className="profile-meta-label">KYC Status</span>
@@ -533,6 +130,10 @@ export function Profile() {
                     Verify Now
                   </button>
                 )}
+              </div>
+              <div className="profile-meta-item">
+                <span className="profile-meta-label">Member Since</span>
+                <span className="profile-meta-value">{currentUser.joinDate}</span>
               </div>
             </div>
           </div>
@@ -547,10 +148,10 @@ export function Profile() {
               </button>
             </div>
             {[
-              { label: 'Full Name', key: 'name', type: 'text' },
-              { label: 'Email Address', key: 'email', type: 'email' },
-              { label: 'Phone Number', key: 'phone', type: 'tel' },
-              { label: 'Address', key: 'address', type: 'text' },
+              { label: 'Full Name', key: 'name', type: 'text', icon: <Mail size={15} /> },
+              { label: 'Email Address', key: 'email', type: 'email', icon: <Mail size={15} /> },
+              { label: 'Phone Number', key: 'phone', type: 'tel', icon: <Phone size={15} /> },
+              { label: 'Address', key: 'address', type: 'text', icon: <MapPin size={15} /> },
             ].map(field => (
               <div key={field.key} className="form-group">
                 <label className="form-label">{field.label}</label>
@@ -565,146 +166,30 @@ export function Profile() {
             ))}
             <div className="form-group">
               <label className="form-label">Country</label>
-              <input className="form-control" value={form.country} disabled />
+              <input className="form-control" value={currentUser.country} disabled />
             </div>
             {editing && (
-              <button className="btn btn-primary btn-full" onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
+              <button className="btn btn-primary btn-full" onClick={handleSave}>Save Changes</button>
             )}
           </div>
 
           <div className="card" style={{ marginTop: 20, padding: 24 }}>
             <h3 style={{ marginBottom: 16 }}>Security & Verification</h3>
             <div className="security-items">
-              <div className="security-item">
-                <div className="security-status ok" />
-                <div className="security-info">
-                  <div className="security-label">Password</div>
-                  <div className="security-value">Change your account password</div>
+              {securityItems.map((item, i) => (
+                <div key={i} className="security-item">
+                  <div className={`security-status ${item.ok ? 'ok' : 'warn'}`} />
+                  <div className="security-info">
+                    <div className="security-label">{item.label}</div>
+                    <div className="security-value">{item.value}</div>
+                  </div>
+                  <button className="btn btn-ghost btn-sm">{item.action}</button>
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => setShowPasswordModal(true)}>Change</button>
-              </div>
-              <div className="security-item">
-                <div className={`security-status ${twoFAStatus?.enabled ? 'ok' : 'warn'}`} />
-                <div className="security-info">
-                  <div className="security-label">2-Factor Auth</div>
-                  <div className="security-value">{twoFAStatus?.enabled ? `Enabled via ${twoFAStatus.method}` : 'Not enabled'}</div>
-                </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => setShowTwoFAModal(true)}>
-                  {twoFAStatus?.enabled ? 'Manage' : 'Enable'}
-                </button>
-              </div>
-              <div className="security-item">
-                <div className={`security-status ${kycOk ? 'ok' : 'warn'}`} />
-                <div className="security-info">
-                  <div className="security-label">KYC Verification</div>
-                  <div className="security-value">{kycLabel}</div>
-                </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => navigate('/kyc')}>
-                  {kycStatus === 'unverified' ? 'Verify' : 'View'}
-                </button>
-              </div>
+              ))}
             </div>
           </div>
         </div>
       </div>
-
-      {/* Password Change Modal */}
-      {showPasswordModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 400, padding: 24 }}>
-            <h3 style={{ marginBottom: 20 }}>Change Password</h3>
-            <div className="form-group">
-              <label className="form-label">Current Password</label>
-              <input
-                type="password"
-                className={`form-control ${passwordErrors.currentPassword ? 'is-invalid' : ''}`}
-                value={passwordForm.currentPassword}
-                onChange={e => setPasswordForm(f => ({ ...f, currentPassword: e.target.value }))}
-                placeholder="Enter current password"
-              />
-              {passwordErrors.currentPassword && <span style={{ color: 'var(--danger)', fontSize: '12px' }}>{passwordErrors.currentPassword}</span>}
-            </div>
-            <div className="form-group">
-              <label className="form-label">New Password</label>
-              <input
-                type="password"
-                className={`form-control ${passwordErrors.newPassword ? 'is-invalid' : ''}`}
-                value={passwordForm.newPassword}
-                onChange={e => setPasswordForm(f => ({ ...f, newPassword: e.target.value }))}
-                placeholder="Enter new password"
-              />
-              {passwordErrors.newPassword && <span style={{ color: 'var(--danger)', fontSize: '12px' }}>{passwordErrors.newPassword}</span>}
-            </div>
-            <div className="form-group">
-              <label className="form-label">Confirm Password</label>
-              <input
-                type="password"
-                className={`form-control ${passwordErrors.confirmPassword ? 'is-invalid' : ''}`}
-                value={passwordForm.confirmPassword}
-                onChange={e => setPasswordForm(f => ({ ...f, confirmPassword: e.target.value }))}
-                placeholder="Confirm new password"
-              />
-              {passwordErrors.confirmPassword && <span style={{ color: 'var(--danger)', fontSize: '12px' }}>{passwordErrors.confirmPassword}</span>}
-            </div>
-            <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
-              <button className="btn btn-ghost btn-full" onClick={() => setShowPasswordModal(false)} disabled={changingPassword}>Cancel</button>
-              <button className="btn btn-primary btn-full" onClick={handleChangePassword} disabled={changingPassword}>
-                {changingPassword ? 'Changing...' : 'Change Password'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 2FA Setup Modal */}
-      {showTwoFAModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 400, padding: 24 }}>
-            <h3 style={{ marginBottom: 20 }}>{twoFAStatus?.enabled ? 'Manage 2FA' : 'Enable 2FA'}</h3>
-            {!twoFAStatus?.enabled ? (
-              <>
-                <p style={{ marginBottom: 16, color: 'var(--text-muted)' }}>Choose your two-factor authentication method:</p>
-                <div className="form-group">
-                  <label className="form-label">2FA Method</label>
-                  <select className="form-control" value={twoFAMethod} onChange={e => setTwoFAMethod(e.target.value)}>
-                    <option value="email">Email</option>
-                    <option value="sms">SMS</option>
-                    <option value="totp">Authenticator App (TOTP)</option>
-                  </select>
-                </div>
-                <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
-                  <button className="btn btn-ghost btn-full" onClick={() => setShowTwoFAModal(false)} disabled={enabling2FA}>Cancel</button>
-                  <button className="btn btn-primary btn-full" onClick={handleEnable2FA} disabled={enabling2FA}>
-                    {enabling2FA ? 'Enabling...' : 'Enable 2FA'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p style={{ marginBottom: 16, color: 'var(--text-muted)' }}>2FA is currently enabled via {twoFAStatus.method}.</p>
-                <div className="form-group">
-                  <label className="form-label">Verification Code</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={twoFACode}
-                    onChange={e => setTwoFACode(e.target.value)}
-                    placeholder="Enter verification code"
-                  />
-                </div>
-                <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
-                  <button className="btn btn-ghost btn-full" onClick={() => setShowTwoFAModal(false)} disabled={disabling2FA}>Cancel</button>
-                  <button className="btn btn-danger btn-full" onClick={handleDisable2FA} disabled={disabling2FA}>
-                    {disabling2FA ? 'Disabling...' : 'Disable 2FA'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
     </DashboardLayout>
   );
 }
