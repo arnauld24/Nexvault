@@ -1,0 +1,211 @@
+1. The Configuration Layer
+File: src/main/resources/application.properties
+
+Action: This connects your Java code to the Docker/Windows PostgreSQL and RabbitMQ instances.
+
+Properties
+# Database Connection
+spring.datasource.url=jdbc:postgresql://localhost:5432/nexvault_db
+spring.datasource.username=postgres
+spring.datasource.password=FONK2005-
+spring.jpa.hibernate.ddl-auto=none
+
+# Naming strategy to match your schema.sql exactly
+spring.jpa.hibernate.naming.physical-strategy=org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+
+# RabbitMQ Configuration
+spring.rabbitmq.host=localhost
+spring.rabbitmq.port=5672
+spring.rabbitmq.username=guest
+spring.rabbitmq.password=guest
+2. The Model Layer (Entities)
+File: models/Wallet.java
+
+Action: Matches the wallets table. It uses @Version for the optimistic locking defined in your schema.
+
+Java
+package com.nexvault.wallet.models;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Entity
+@Table(name = "wallets")
+@Data
+public class Wallet {
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(name = "user_id", unique = true, nullable = false)
+    private UUID userId; 
+
+    private BigDecimal balance = BigDecimal.ZERO;
+    private String currency = "USD";
+    private String status = "active";
+
+    @Column(name = "daily_limit")
+    private BigDecimal dailyLimit = new BigDecimal("10000.00");
+
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Version 
+    private Integer version;
+}
+File: models/Transaction.java
+
+Action: Matches the transactions table to record every credit and debit.
+
+Java
+package com.nexvault.wallet.models;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Entity
+@Table(name = "transactions")
+@Data
+public class Transaction {
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    private String reference;
+    private String type;      // 'credit', 'debit'
+    private String category;  // 'deposit', 'withdrawal', 'transfer'
+    private String status = "pending";
+    
+    private BigDecimal amount;
+    private BigDecimal fee = BigDecimal.ZERO;
+    
+    @Column(name = "net_amount")
+    private BigDecimal netAmount;
+
+    @ManyToOne
+    @JoinColumn(name = "wallet_id")
+    private Wallet wallet;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt = LocalDateTime.now();
+}
+3. The Repository Layer
+File: repositories/WalletRepository.java
+
+Action: Provides the data access methods for UUID-based lookups.
+
+Java
+package com.nexvault.wallet.repositories;
+
+import com.nexvault.wallet.models.Wallet;
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.UUID;
+
+public interface WalletRepository extends JpaRepository<Wallet, UUID> {
+    Wallet findByUserId(UUID userId);
+}
+4. The Service Layer (Logic)
+File: services/WalletService.java
+
+Action: This calls your custom PostgreSQL function process_transaction for high-integrity financial updates.
+
+Java
+package com.nexvault.wallet.services;
+
+import com.nexvault.wallet.repositories.WalletRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import jakarta.persistence.EntityManager;
+import java.math.BigDecimal;
+import java.util.UUID;
+
+@Service
+public class WalletService {
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Transactional
+    public void processFinancialTransaction(UUID txnId, UUID walletId, BigDecimal amount, String type) {
+        // Calls the SQL function from your schema.sql
+        entityManager.createNativeQuery("SELECT process_transaction(:t_id, :w_id, :amt, 0, :type)")
+            .setParameter("t_id", txnId)
+            .setParameter("w_id", walletId)
+            .setParameter("amt", amount)
+            .setParameter("type", type)
+            .getSingleResult();
+    }
+}
+5. The Listener Layer (Event Driven)
+File: listeners/UserEventListener.java
+
+Action: Automatically creates a wallet when the Auth Service (Node.js) sends a message via RabbitMQ.
+
+Java
+package com.nexvault.wallet.listeners;
+
+import com.nexvault.wallet.models.Wallet;
+import com.nexvault.wallet.repositories.WalletRepository;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import java.math.BigDecimal;
+import java.util.UUID;
+
+@Component
+public class UserEventListener {
+
+    @Autowired
+    private WalletRepository walletRepository;
+
+    @RabbitListener(queues = "user.registration.queue")
+    public void handleNewUser(String userIdString) {
+        UUID userId = UUID.fromString(userIdString);
+        if (walletRepository.findByUserId(userId) == null) {
+            Wallet wallet = new Wallet();
+            wallet.setUserId(userId);
+            wallet.setBalance(BigDecimal.ZERO);
+            walletRepository.save(wallet);
+            System.out.println("✅ Wallet Created for UUID: " + userId);
+        }
+    }
+}
+6. The Controller Layer (API)
+File: controllers/WalletController.java
+
+Action: Exposes endpoints for your React frontend to check balances or initiate actions.
+
+Java
+package com.nexvault.wallet.controllers;
+
+import com.nexvault.wallet.models.Wallet;
+import com.nexvault.wallet.repositories.WalletRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/wallet")
+@CrossOrigin(origins = "*")
+public class WalletController {
+
+    @Autowired
+    private WalletRepository walletRepository;
+
+    @GetMapping("/balance/{userId}")
+    public ResponseEntity<Wallet> getBalance(@PathVariable UUID userId) {
+        return ResponseEntity.ok(walletRepository.findByUserId(userId));
+    }
+}
+Final Step
+Ensure your pom.xml includes Spring Data JPA, PostgreSQL Driver, Spring RabbitMQ, and Lombok. Once these files are placed, hit the Run button in IntelliJ.
+
+How many microservices (besides Auth and Wallet) are you planning to have active during your project demonstration?

@@ -1,0 +1,31 @@
+{
+  "name": "notification-service",
+  "version": "1.0.0",
+  "description": "Notification Service for NexVault Digital Wallet",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "notification",
+    "email",
+    "sms",
+    "microservice"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "amqplib": "^1.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "nodemailer": "^8.0.5",
+    "uuid": "8.3.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

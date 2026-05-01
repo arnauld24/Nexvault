@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log*
+Dockerfile.node
+Wallet-Service-System
+.git
+.gitignore
+.env
+.env.example

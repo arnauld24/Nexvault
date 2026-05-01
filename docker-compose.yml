@@ -1,0 +1,208 @@
+# version: '3.8'
+
+services:
+  # PostgreSQL - Primary database for Auth Service
+  postgres:
+    image: postgres:15-alpine
+    container_name: nexvault_postgres
+    environment:
+      - POSTGRES_DB=nexvault_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=FONK2005-
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./cloud-wallet/apps/auth-service/database/schema.sql:/docker-entrypoint-initdb.d/01_auth_schema.sql
+      - ./cloud-wallet/apps/wallet-service/schema.sql:/docker-entrypoint-initdb.d/02_wallet_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nexvault_network
+
+  # RabbitMQ - Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: nexvault_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - nexvault_network
+
+  # Auth Service - Node.js/Express
+  auth-service:
+    build:
+      context: ./cloud-wallet/apps/auth-service
+      dockerfile: Dockerfile
+    container_name: nexvault_auth_service
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      NODE_ENV: development
+      DB_USER: postgres
+      DB_PASSWORD: "FONK2005-"
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: nexvault_db
+      JWT_SECRET: fbd204a7-318e-4dd3-86e0-e6d524fc3f98
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672"
+      EMAIL_HOST: smtp.gmail.com
+      EMAIL_PORT: 587
+      EMAIL_USER: fonkouaarnauld@gmail.com
+      EMAIL_PASSWORD: zwwkhteflwgpycyq
+      EMAIL_FROM: noreply@nexvault.com || fonkouaarnauld@gmail.com
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - nexvault_network
+    restart: unless-stopped
+
+  # Notification Service - Node.js/Express
+  notification-service:
+    build:
+      context: ./cloud-wallet/apps/notification-service
+      dockerfile: Dockerfile
+    container_name: nexvault_notification_service
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: 3002
+      NODE_ENV: production
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672"
+      EMAIL_HOST: smtp.gmail.com
+      EMAIL_PORT: 587
+      EMAIL_USER: fonkouaarnauld@gmail.com
+      EMAIL_PASSWORD: zwwkhteflwgpycyq
+      EMAIL_FROM: fonkouaarnauld@gmail.com
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - nexvault_network
+    restart: unless-stopped
+
+    #wallet service - Java
+  wallet-service-java:
+    build:
+      context: ./cloud-wallet/apps/wallet-service/Wallet-Service-System
+      dockerfile: Dockerfile
+    ports:
+    - "8080:8080"
+    container_name: nexvault_wallet_service_java
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/nexvault_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=FONK2005-
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=none
+      - SPRING_RABBITMQ_PORT=5672
+      - SPRING_RABBITMQ_USERNAME=guest
+      - SPRING_RABBITMQ_PASSWORD=guest
+      - SPRING_RABBITMQ_VIRTUAL_HOST=/
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - nexvault_network
+    restart: unless-stopped
+
+
+  # Wallet Service - Node.js/Express
+  wallet-service:
+    build:
+      context: ./cloud-wallet/apps/wallet-service
+      dockerfile: Dockerfile
+    container_name: nexvault_wallet_service
+    ports:
+      - "3003:3003"
+    environment:
+     - PORT=3003
+      - NODE_ENV=development
+      - DB_USER=postgres
+      - DB_PASSWORD=FONK2005-
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=nexvault_db
+      - JWT_SECRET=fbd204a7-318e-4dd3-86e0-e6d524fc3f98
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - nexvault_network
+    restart: unless-stopped
+
+    #Frontend - React.js (served separately, in Docker)
+  nexvault-frontend:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    container_name: nexvault_frontend
+    ports:
+      - "5173:5173"
+    environment:
+      PORT: 5173
+      NODE_ENV: development
+      REACT_APP_API_GATEWAY_URL: http://api-gateway:3000
+    depends_on:
+      - api-gateway
+    networks:
+      - nexvault_network
+    restart: unless-stopped
+
+
+  # API Gateway - Express.js
+  api-gateway:
+    build:
+      context: ./cloud-wallet/apps/api-gateway
+      dockerfile: Dockerfile
+    container_name: nexvault_api_gateway
+    ports:
+      - "4000:3000"
+    environment:
+      PORT: 3000
+      NODE_ENV: development
+      AUTH_SERVICE_URL: http://auth-service:3001
+      WALLET_SERVICE_URL: http://wallet-service:3003
+      WALLET_SERVICE_JAVA_URL: http://wallet-service-java:8080
+      NOTIFICATION_SERVICE_URL: http://notification-service:3002
+      FRONTEND_URL: http://localhost:5173
+    depends_on:
+      - auth-service
+      - wallet-service
+      - wallet-service-java
+      - notification-service
+    networks:
+      - nexvault_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+
+networks:
+  nexvault_network:
+    driver: bridge

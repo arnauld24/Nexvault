@@ -1,0 +1,90 @@
+# ==================== NODE DEPENDENCIES & BUILDS ====================
+node_modules/
+dist/
+build/
+coverage/
+.npm/
+
+# ==================== ENVIRONMENT VARIABLES ====================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production.backup
+
+# ==================== LOGS ====================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==================== EDITOR & IDE ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.sublime-project
+*.sublime-workspace
+
+# ==================== OS & SYSTEM ====================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ==================== DOCKER OVERRIDES ====================
+docker-compose.override.yml
+
+# ==================== TEMPORARY & CACHE FILES ====================
+tmp/
+temp/
+.temp/
+.cache/
+.parcel-cache/
+
+# ==================== JAVA/MAVEN BUILDS ====================
+target/
+*.class
+*.jar
+*.war
+*.ear
+.mvn/wrapper/maven-wrapper.jar
+*.iml
+
+# ==================== GRADLE ====================
+.gradle/
+*.gradle~
+
+# ==================== USER UPLOADS ====================
+cloud-wallet/apps/uploads/**
+!cloud-wallet/apps/uploads/.gitkeep
+
+# ==================== SESSION & CREDENTIALS ====================
+.session
+*.session
+.credentials
+*.credentials
+
+# ==================== NODE-SPECIFIC ====================
+.next/
+out/
+.nuxt/
+dist/
+.cache/
+.vuepress/dist/
+.serverless/
+.fusebox/
+.dynamodb/
+.tern-port

@@ -1,0 +1,26 @@
+{
+  "name": "api-gateway",
+  "version": "1.0.0",
+  "description": "API Gateway for NexVault - Routes requests to microservices",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": ["api-gateway", "microservice", "routing"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "cors": "^2.8.6",
+    "helmet": "^8.1.0",
+    "dotenv": "^17.4.2",
+    "http-proxy-middleware": "^3.0.5",
+    "axios": "^1.6.0",
+    "express-rate-limit": "^7.1.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
