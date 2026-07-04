@@ -4,12 +4,13 @@ import {
   CheckCircle, ArrowLeft, ArrowLeftRight, Landmark, CreditCard,
   Lock, Wallet, ArrowRight, ArrowUpFromLine,
   User, Search, ChevronDown, Info, Copy, Shield,
-  AlertCircle, Clock, Zap, BadgeCheck,
+  AlertCircle, Clock, Zap, BadgeCheck, Smartphone,
 } from 'lucide-react';
 import DashboardLayout from '../components/layout/DashboardLayout';
 import { KYCGate } from '../components/KYCBanner';
 import { useWallet } from '../context/WalletContext';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 import apiClient from '../api/client';
 import { formatCurrency } from '../utils/formatters';
 import './SendDeposit.css';
@@ -28,6 +29,24 @@ function getContactColor(seed) {
   return CONTACT_COLORS[hash % CONTACT_COLORS.length];
 }
 
+function calculateWithdrawalFee(amount) {
+  const tiers = [
+    { max: 10000, percentage: 0.030 },
+    { max: 50000, percentage: 0.041 },
+    { max: 200000, percentage: 0.040 },
+    { max: Infinity, percentage: 0.045 },
+  ];
+  const tier = tiers.find(t => amount <= t.max) || tiers[tiers.length - 1];
+  const percentageFee = Math.round(amount * tier.percentage);
+  const fixedFee = 10;
+  return {
+    amount,
+    fixedFee,
+    percentageFee,
+    total: fixedFee + percentageFee,
+  };
+}
+
 /* ─── Shared success screen ─── */
 function SuccessScreen({ title, subtitle, amount, reference, status, onViewTx, onAgain, againLabel }) {
   return (
@@ -42,7 +61,7 @@ function SuccessScreen({ title, subtitle, amount, reference, status, onViewTx, o
       <div className="fin-success-amount">{amount}</div>
       {status === 'pending' && (
         <div className="fin-success-status">
-          <Clock size={14} /> Processing — funds will arrive in 1–3 business days
+          <Clock size={14} /> Processing — please check within 1–5 minutes
         </div>
       )}
       <div className="fin-success-ref">
@@ -61,7 +80,7 @@ function SuccessScreen({ title, subtitle, amount, reference, status, onViewTx, o
 }
 
 /* ─── Amount input ─── */
-function AmountInput({ value, onChange, balance, quickAmounts }) {
+function AmountInput({ value, onChange, balance, quickAmounts, min = 0 }) {
   return (
     <div className="fin-amount-block">
       <div className="fin-amount-input-wrap">
@@ -76,7 +95,7 @@ function AmountInput({ value, onChange, balance, quickAmounts }) {
           placeholder="100.00"
           value={value}
           onChange={e => onChange(e.target.value)}
-          min="0"
+          min={min}
         />
       </div>
       <div className="fin-amount-meta">
@@ -352,9 +371,11 @@ export function Transfer() {
 export function Deposit() {
   const navigate = useNavigate();
   const { balance, deposit } = useWallet();
+  const { user } = useAuth();
   const toast = useToast();
   const [method, setMethod] = useState('bank');
   const [amount, setAmount] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState('');
@@ -367,7 +388,13 @@ export function Deposit() {
   const methods = [
     { id: 'bank', label: 'Bank Transfer', icon: Landmark, desc: 'Free · 1–3 business days', badge: 'Popular' },
     { id: 'card', label: 'Debit / Credit Card', icon: CreditCard, desc: '1.5% fee · Instant', badge: 'Instant' },
+    { id: 'orange', label: 'Orange Money', icon: Smartphone, desc: 'Pay from your Orange account · Instant', badge: 'Mobile' },
+    { id: 'mtn', label: 'MTN Mobile Money', icon: Smartphone, desc: 'Pay from your MTN account · Instant', badge: 'Mobile' },
   ];
+
+  const isMobileMethod = method === 'orange' || method === 'mtn';
+  const normalizedPhone = phoneNumber.replace(/\D/g, '');
+  const isPhoneValid = !isMobileMethod || normalizedPhone.length >= 9;
 
   const copyText = (text, key) => {
     navigator.clipboard?.writeText(text);
@@ -378,6 +405,34 @@ export function Deposit() {
   const handleDeposit = async () => {
     setLoading(true);
     try {
+      if (isMobileMethod) {
+        if (!isPhoneValid) {
+          throw new Error('Please enter a valid phone number for mobile money.');
+        }
+
+        const userId = user?.id || user?.userId || user?.uuid;
+        const payload = {
+          userId,
+          amount: Math.round(parseFloat(amount)),
+          phone: normalizedPhone,
+          medium: method === 'orange' ? 'orange money' : 'mtn',
+          currency: 'XAF',
+          reference: depositRef,
+          email: user?.email,
+          redirectUrl: window.location.origin + '/dashboard',
+          message: `Deposit ${formatCurrency(parseFloat(amount))} to NexVault wallet`,
+        };
+
+        const res = await apiClient.initiateMobileMoneyDeposit(payload);
+        setResult({
+          ...res,
+          reference: res.reference || res.fapshi?.transId || depositRef,
+          status: res.success ? 'pending' : 'failed',
+        });
+        toast(res.message || 'Mobile money payment request started', 'success');
+        return;
+      }
+
       const res = await deposit(parseFloat(amount), method, method === 'bank' ? depositRef : undefined);
       setResult({ ...res, reference: res.transaction?.reference || res.reference });
       toast(res.message || 'Deposit processed successfully', 'success');
@@ -479,6 +534,24 @@ export function Deposit() {
                   </div>
                 )}
 
+                {isMobileMethod && (
+                  <div className="fin-bank-details">
+                    <div className="fin-bank-title"><Smartphone size={14} /> Mobile Money Details</div>
+                    <div className="form-group" style={{ marginBottom: 12 }}>
+                      <label className="form-label">Phone Number</label>
+                      <input
+                        className="form-control"
+                        placeholder="6XXXXXXXX"
+                        value={phoneNumber}
+                        onChange={e => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 9))}
+                      />
+                    </div>
+                    <div className="fin-bank-note" style={{ marginTop: 12 }}>
+                      <Shield size={13} /> We will send the payment request to your mobile account through Fapshi and confirm it once the transaction is validated.
+                    </div>
+                  </div>
+                )}
+
                 {method === 'card' && (
                   <div className="fin-bank-details">
                     <div className="fin-bank-title"><CreditCard size={14} /> Card Details</div>
@@ -527,7 +600,8 @@ export function Deposit() {
                   onClick={handleDeposit}
                   disabled={
                     !amount || parseFloat(amount) <= 0 || loading ||
-                    (method === 'card' && (!cardForm.name || cardForm.number.replace(/\s/g,'').length < 16 || cardForm.expiry.length < 5 || cardForm.cvv.length < 3))
+                    (method === 'card' && (!cardForm.name || cardForm.number.replace(/\s/g,'').length < 16 || cardForm.expiry.length < 5 || cardForm.cvv.length < 3)) ||
+                    (isMobileMethod && !isPhoneValid)
                   }>
                   {loading ? <><span className="spinner" /> Processing...</> : `Deposit ${amount ? formatCurrency(parseFloat(amount)) : 'Funds'}`}
                 </button>
@@ -565,17 +639,30 @@ export function Withdraw() {
   const toast = useToast();
   const [step, setStep] = useState(1);
   const [amount, setAmount] = useState('');
+  const [withdrawalType, setWithdrawalType] = useState(null); // 'bank' or 'mobile'
+  const [mobileProvider, setMobileProvider] = useState(null); // 'orange' or 'mtn'
   const [bankForm, setBankForm] = useState({ bankName: '', accountNumber: '', routingNumber: '', accountName: '' });
+  const [mobileForm, setMobileForm] = useState({ phone: '', name: '' });
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
-  const fee = 0;
-  const youGet = (parseFloat(amount) || 0) - fee;
+  const intAmount = Math.max(0, Math.round(parseFloat(amount) || 0));
+  const feeBreakdown = intAmount > 0 ? calculateWithdrawalFee(intAmount) : { total: 0, fixedFee: 0, percentageFee: 0 };
+  const youGet = Math.max(intAmount - feeBreakdown.total, 0);
+  
+  const stepLabels = withdrawalType === 'bank' 
+    ? ['Amount', 'Bank Details', 'Confirm']
+    : ['Amount', 'Withdrawal Type', 'Mobile Details', 'Confirm'];
 
   const handleConfirm = async () => {
     setLoading(true);
     try {
-      const res = await withdraw(parseFloat(amount), bankForm.bankName, bankForm.accountNumber);
+      let res;
+      if (withdrawalType === 'bank') {
+        res = await withdraw(parseFloat(amount), 'bank', { bankName: bankForm.bankName, accountNumber: bankForm.accountNumber, accountName: bankForm.accountName });
+      } else {
+        res = await withdraw(parseFloat(amount), 'mobile', { provider: mobileProvider, phone: mobileForm.phone, name: mobileForm.name });
+      }
       setResult(res);
       toast('Withdrawal submitted successfully!', 'success');
     } catch (err) {
@@ -589,12 +676,20 @@ export function Withdraw() {
     <DashboardLayout>
       <SuccessScreen
         title="Withdrawal Submitted"
-        subtitle="Your funds are on the way to your bank"
+        subtitle={withdrawalType === 'bank' ? "Your funds are on the way to your bank" : "Your funds are on the way to your mobile money account"}
         amount={formatCurrency(youGet)}
         reference={result.reference}
         status="pending"
         onViewTx={() => navigate('/transactions')}
-        onAgain={() => { setResult(null); setStep(1); setAmount(''); setBankForm({ bankName: '', accountNumber: '', routingNumber: '', accountName: '' }); }}
+        onAgain={() => { 
+          setResult(null); 
+          setStep(1); 
+          setAmount(''); 
+          setWithdrawalType(null);
+          setMobileProvider(null);
+          setBankForm({ bankName: '', accountNumber: '', routingNumber: '', accountName: '' }); 
+          setMobileForm({ phone: '', name: '' });
+        }}
         againLabel="New Withdrawal"
       />
     </DashboardLayout>
@@ -611,18 +706,18 @@ export function Withdraw() {
               </div>
               <div>
                 <h1>Withdraw</h1>
-                <p>Transfer funds from your wallet to your bank account</p>
+                <p>Transfer funds from your wallet to your bank or mobile money account</p>
               </div>
             </div>
             <div className="fin-balance-pill"><Wallet size={14} /><span>{formatCurrency(balance)}</span></div>
           </div>
 
           <div className="fin-steps">
-            {['Amount', 'Bank Details', 'Confirm'].map((s, i) => (
+            {stepLabels.map((s, i) => (
               <div key={i} className={`fin-step ${step === i + 1 ? 'active' : step > i + 1 ? 'done' : ''}`}>
                 <div className="fin-step-dot">{step > i + 1 ? <CheckCircle size={14} /> : <span>{i + 1}</span>}</div>
                 <span>{s}</span>
-                {i < 2 && <div className="fin-step-line" />}
+                {i < stepLabels.length - 1 && <div className="fin-step-line" />}
               </div>
             ))}
           </div>
@@ -632,27 +727,86 @@ export function Withdraw() {
               {step === 1 && (
                 <div className="fin-card animate-fade">
                   <div className="fin-card-title">Amount to Withdraw</div>
-                  <AmountInput value={amount} onChange={setAmount} balance={balance} quickAmounts={[100, 250, 500, 1000]} />
+                  <AmountInput value={amount} onChange={setAmount} balance={balance} quickAmounts={[500, 1000, 2000, 5000]} min={500} />
                   {amount && parseFloat(amount) > 0 && (
                     <div className="fin-withdraw-summary">
-                      <div className="fin-review-row"><span>Withdrawal amount</span><span>{formatCurrency(parseFloat(amount))}</span></div>
-                      <div className="fin-review-row"><span>Fee</span><span>Free</span></div>
+                      <div className="fin-review-row"><span>Withdrawal amount</span><span>{formatCurrency(intAmount)}</span></div>
+                      <div className="fin-review-row"><span>Fee</span><span>{formatCurrency(feeBreakdown.total)}</span></div>
                       <div className="fin-review-row fin-review-total"><span>You receive</span><span>{formatCurrency(youGet)}</span></div>
                     </div>
                   )}
                   <button className="btn btn-primary btn-full fin-next-btn" onClick={() => setStep(2)}
-                    disabled={!amount || parseFloat(amount) <= 0 || parseFloat(amount) > balance}>
+                    disabled={!amount || parseFloat(amount) < 500 || parseFloat(amount) > balance}>
                     Continue <ArrowRight size={16} />
                   </button>
                   {parseFloat(amount) > balance && (
                     <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 8, textAlign: 'center' }}>Insufficient balance</p>
                   )}
+                  {amount && parseFloat(amount) > 0 && parseFloat(amount) < 500 && (
+                    <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 8, textAlign: 'center' }}>Minimum withdrawal amount is 500 FCFA</p>
+                  )}
                 </div>
               )}
 
-              {step === 2 && (
+              {step === 2 && !withdrawalType && (
                 <div className="fin-card animate-fade">
                   <button className="fin-back-btn" onClick={() => setStep(1)}><ArrowLeft size={15} /> Back</button>
+                  <div className="fin-card-title">Choose Withdrawal Method</div>
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>Select where you want to receive your funds</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <button 
+                      onClick={() => { setWithdrawalType('bank'); setStep(3); }}
+                      style={{
+                        padding: 16,
+                        border: '2px solid var(--border-light)',
+                        borderRadius: 8,
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.background = '#f3f4f6'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <div style={{ width: 40, height: 40, background: '#dbeafe', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0056b3', fontSize: 18 }}>🏦</div>
+                      <div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>Bank Account</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Transfer to your bank account (1-3 business days)</div>
+                      </div>
+                    </button>
+                    <button 
+                      onClick={() => { setWithdrawalType('mobile'); setStep(3); }}
+                      style={{
+                        padding: 16,
+                        border: '2px solid var(--border-light)',
+                        borderRadius: 8,
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#10b981'; e.currentTarget.style.background = '#f3f4f6'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <div style={{ width: 40, height: 40, background: '#d1fae5', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', fontSize: 18 }}>📱</div>
+                      <div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>Mobile Money</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Transfer to mobile money account (1-5 minutes)</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {step === 3 && withdrawalType === 'bank' && (
+                <div className="fin-card animate-fade">
+                  <button className="fin-back-btn" onClick={() => { setWithdrawalType(null); setStep(2); }}><ArrowLeft size={15} /> Back</button>
                   <div className="fin-card-title">Your Bank Account Details</div>
                   <div className="form-group">
                     <label className="form-label">Account Holder Name</label>
@@ -673,28 +827,116 @@ export function Withdraw() {
                   <div className="fin-bank-note" style={{ marginBottom: 16 }}>
                     <AlertCircle size={13} /> Double-check your details. Incorrect information may cause delays or lost funds.
                   </div>
-                  <button className="btn btn-primary btn-full fin-next-btn" onClick={() => setStep(3)}
+                  <button className="btn btn-primary btn-full fin-next-btn" onClick={() => setStep(stepLabels.length)}
                     disabled={!bankForm.accountName || !bankForm.bankName || !bankForm.accountNumber || !bankForm.routingNumber}>
                     Review Withdrawal <ArrowRight size={16} />
                   </button>
                 </div>
               )}
 
-              {step === 3 && (
+              {step === 3 && withdrawalType === 'mobile' && (
                 <div className="fin-card animate-fade">
-                  <button className="fin-back-btn" onClick={() => setStep(2)}><ArrowLeft size={15} /> Back</button>
+                  <button className="fin-back-btn" onClick={() => { setWithdrawalType(null); setStep(2); }}><ArrowLeft size={15} /> Back</button>
+                  <div className="fin-card-title">Choose Mobile Money Provider</div>
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>Select your mobile money service</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <button 
+                      onClick={() => { setMobileProvider('orange'); setStep(4); }}
+                      style={{
+                        padding: 16,
+                        border: `2px solid ${mobileProvider === 'orange' ? '#ff6600' : 'var(--border-light)'}`,
+                        borderRadius: 8,
+                        background: mobileProvider === 'orange' ? '#fff5f0' : 'transparent',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12
+                      }}
+                      onMouseEnter={e => { if (mobileProvider !== 'orange') { e.currentTarget.style.borderColor = '#ff6600'; e.currentTarget.style.background = '#f3f4f6'; } }}
+                      onMouseLeave={e => { if (mobileProvider !== 'orange') { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.background = 'transparent'; } }}
+                    >
+                      <div style={{ width: 40, height: 40, background: '#ffe6cc', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ff6600', fontSize: 18 }}>🟠</div>
+                      <div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>Orange Money</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Fast transfer to your Orange account</div>
+                      </div>
+                    </button>
+                    <button 
+                      onClick={() => { setMobileProvider('mtn'); setStep(4); }}
+                      style={{
+                        padding: 16,
+                        border: `2px solid ${mobileProvider === 'mtn' ? '#ffc900' : 'var(--border-light)'}`,
+                        borderRadius: 8,
+                        background: mobileProvider === 'mtn' ? '#fffaf0' : 'transparent',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12
+                      }}
+                      onMouseEnter={e => { if (mobileProvider !== 'mtn') { e.currentTarget.style.borderColor = '#ffc900'; e.currentTarget.style.background = '#f3f4f6'; } }}
+                      onMouseLeave={e => { if (mobileProvider !== 'mtn') { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.background = 'transparent'; } }}
+                    >
+                      <div style={{ width: 40, height: 40, background: '#ffecb3', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffc900', fontSize: 18 }}>🟡</div>
+                      <div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>MTN Mobile Money</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Fast transfer to your MTN wallet</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {step === 4 && withdrawalType === 'mobile' && (
+                <div className="fin-card animate-fade">
+                  <button className="fin-back-btn" onClick={() => setStep(3)}><ArrowLeft size={15} /> Back</button>
+                  <div className="fin-card-title">{mobileProvider === 'orange' ? 'Orange Money' : 'MTN Mobile Money'} Details</div>
+                  <div className="form-group">
+                    <label className="form-label">Account Holder Name</label>
+                    <input className="form-control" placeholder="Full name" value={mobileForm.name} onChange={e => setMobileForm(f => ({ ...f, name: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Phone Number</label>
+                    <input className="form-control font-mono" placeholder="e.g. +237650000000" value={mobileForm.phone} onChange={e => setMobileForm(f => ({ ...f, phone: e.target.value }))} />
+                  </div>
+                  <div className="fin-bank-note" style={{ marginBottom: 16 }}>
+                    <AlertCircle size={13} /> Make sure the phone number matches your {mobileProvider === 'orange' ? 'Orange Money' : 'MTN'} account.
+                  </div>
+                  <button className="btn btn-primary btn-full fin-next-btn" onClick={() => setStep(stepLabels.length)}
+                    disabled={!mobileForm.name || !mobileForm.phone}>
+                    Review Withdrawal <ArrowRight size={16} />
+                  </button>
+                </div>
+              )}
+
+              {step === stepLabels.length && (
+                <div className="fin-card animate-fade">
+                  <button className="fin-back-btn" onClick={() => setStep(withdrawalType === 'bank' ? 3 : 4)}><ArrowLeft size={15} /> Back</button>
                   <div className="fin-card-title">Confirm Withdrawal</div>
                   <div className="fin-review-hero" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 0 }}>
                     <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>You withdraw</div>
                     <div className="fin-review-amount">{formatCurrency(parseFloat(amount))}</div>
                   </div>
                   <div className="fin-review-rows">
-                    <div className="fin-review-row"><span>To Bank</span><span>{bankForm.bankName}</span></div>
-                    <div className="fin-review-row"><span>Account</span><span className="font-mono">••••{bankForm.accountNumber.slice(-4)}</span></div>
-                    <div className="fin-review-row"><span>Account Name</span><span>{bankForm.accountName}</span></div>
-                    <div className="fin-review-row"><span>Fee</span><span>Free</span></div>
+                    {withdrawalType === 'bank' ? (
+                      <>
+                        <div className="fin-review-row"><span>To Bank</span><span>{bankForm.bankName}</span></div>
+                        <div className="fin-review-row"><span>Account</span><span className="font-mono">••••{bankForm.accountNumber.slice(-4)}</span></div>
+                        <div className="fin-review-row"><span>Account Name</span><span>{bankForm.accountName}</span></div>
+                        <div className="fin-review-row"><span>Arrival</span><span>1–3 business days</span></div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="fin-review-row"><span>To {mobileProvider === 'orange' ? 'Orange Money' : 'MTN Mobile Money'}</span><span className="font-mono">••••{mobileForm.phone.slice(-4)}</span></div>
+                        <div className="fin-review-row"><span>Account Name</span><span>{mobileForm.name}</span></div>
+                        <div className="fin-review-row"><span>Arrival</span><span>1–5 minutes</span></div>
+                      </>
+                    )}
+                    <div className="fin-review-row"><span>Fee</span><span>{formatCurrency(feeBreakdown.total)}</span></div>
                     <div className="fin-review-row fin-review-total"><span>You receive</span><span>{formatCurrency(youGet)}</span></div>
-                    <div className="fin-review-row"><span>Arrival</span><span>1–3 business days</span></div>
                   </div>
                   <div className="fin-security-note"><Lock size={13} /> AES-256 encrypted · Secured by NexVault</div>
                   <button className="btn btn-primary btn-full fin-next-btn" onClick={handleConfirm} disabled={loading}>
@@ -708,17 +950,18 @@ export function Withdraw() {
               <div className="fin-info-card">
                 <div className="fin-info-title"><Shield size={14} /> Withdrawal Limits</div>
                 <div className="fin-info-rows">
-                  <div className="fin-info-row"><span>Daily limit</span><span>50,000 FCFA</span></div>
-                  <div className="fin-info-row"><span>Monthly limit</span><span>200,000 FCFA</span></div>
-                  <div className="fin-info-row"><span>Min withdrawal</span><span>10.00 FCFA</span></div>
+                  <div className="fin-info-row"><span>Daily limit</span><span>200,000 FCFA</span></div>
+                  <div className="fin-info-row"><span>Monthly limit</span><span>1,000,000 FCFA</span></div>
+                  <div className="fin-info-row"><span>Min withdrawal</span><span>500 FCFA</span></div>
                 </div>
               </div>
               <div className="fin-info-card" style={{ marginTop: 14 }}>
                 <div className="fin-info-title"><AlertCircle size={14} /> Important</div>
                 <ul className="fin-info-list">
-                  <li>Verify bank details carefully before confirming.</li>
-                  <li>Withdrawals are processed within 1–3 business days.</li>
-                  <li>Contact support if funds don't arrive within 3 days.</li>
+                  <li>Verify your details carefully before confirming.</li>
+                  <li>Bank transfers: 1–3 business days</li>
+                  <li>Mobile Money: 1–5 minutes</li>
+                  <li>Contact support if funds don't arrive in time.</li>
                 </ul>
               </div>
             </div>

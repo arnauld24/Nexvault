@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, Clock, X, ArrowRight, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, Clock, X, ArrowRight, AlertTriangle, Loader } from 'lucide-react';
 import { useKYC } from '../context/KYCContext';
 
 export default function KYCBanner() {
-  const { kycStatus } = useKYC();
+  const { kycStatus, loading, initializing } = useKYC();
   const navigate = useNavigate();
   const [dismissed, setDismissed] = useState(false);
 
-  if (kycStatus === 'verified' || dismissed) return null;
+  // Don't show anything while initializing or loading KYC status
+  if (initializing || loading || dismissed) return null;
+
+  if (kycStatus === 'verified') return null;
 
   if (kycStatus === 'pending') {
     return (
@@ -44,8 +47,20 @@ export default function KYCBanner() {
 }
 
 export function KYCGate({ children }) {
-  const { kycStatus } = useKYC();
+  const { kycStatus, loading } = useKYC();
   const navigate = useNavigate();
+
+  // Show loading while fetching KYC status
+  if (loading) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: 'var(--bg-light)',
+      }}>
+        <span className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+      </div>
+    );
+  }
 
   if (kycStatus === 'verified') return children;
 

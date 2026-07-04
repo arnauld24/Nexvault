@@ -1,4 +1,6 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -11,12 +13,48 @@ const config = require('./config/config');
 const authRoutes = require('./routes/auth');
 const notificationRoutes = require('./routes/notifications');
 const kycRoutes = require('./routes/kyc');
+const adminRoutes = require('./routes/admin');
+const debugRoutes = require('./routes/debug');
 
 const app = express();
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://localhost:3004',
+  'http://localhost:4000',
+  'http://localhost:3006',
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:3002',
+  'http://127.0.0.1:3004',
+  'http://127.0.0.1:4000',
+  'http://127.0.0.1:3006',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://nexvault-frontend:5173',
+];
 
 // Middleware
-app.use(helmet());
-app.use(cors());
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+}));
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(null, false);
+  },
+  credentials: true,
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -44,10 +82,97 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Serve uploaded KYC assets
+const uploadsPath = path.resolve(__dirname, 'uploads');
+const kycUploadsPath = path.join(uploadsPath, 'kyc');
+fs.mkdirSync(uploadsPath, { recursive: true });
+fs.mkdirSync(kycUploadsPath, { recursive: true });
+console.log('Serving uploads from:', uploadsPath);
+
+// Explicit KYC file endpoint to ensure correct CORS/CORP headers are applied
+app.get('/uploads/kyc/:filename', async (req, res, next) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(kycUploadsPath, filename);
+    await fs.promises.access(filePath);
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.sendFile(filePath);
+  } catch (err) {
+    // If not found, attempt seeded-folder fallback (userId/docType.jpg)
+    const fallbackMatch = req.params.filename.match(/^([^_]+)_(passport|id|selfie|address_proof)_(\d+)\.(jpg|jpeg|png|pdf)$/i);
+    if (fallbackMatch) {
+      const userId = fallbackMatch[1];
+      try {
+        const files = await fs.promises.readdir(kycUploadsPath);
+        const candidate = files.find((f) => f.startsWith(`${userId}_`));
+        if (candidate) {
+          const candidatePath = path.join(kycUploadsPath, candidate);
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          return res.sendFile(candidatePath);
+        }
+      } catch (e) {
+        // fall through to next
+      }
+    }
+    return next();
+  }
+});
+
+app.use('/uploads', async (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  if (req.path.startsWith('/kyc/')) {
+    const requestedFile = path.join(kycUploadsPath, req.path.substring('/kyc/'.length));
+      try {
+        await fs.promises.access(requestedFile);
+        return next();
+      } catch {
+        const fallbackMatch = req.path.match(/^\/kyc\/([^/]+)\/(passport|id|selfie|address_proof)\.(jpg|jpeg|png|pdf)$/i);
+        if (fallbackMatch) {
+          const [, userId, documentType] = fallbackMatch;
+          try {
+            const files = await fs.promises.readdir(kycUploadsPath);
+            const candidate = files.find((filename) => filename.startsWith(`${userId}_${documentType}_`));
+            if (candidate) {
+              // sendFile will allow our express.static setHeaders to be bypassed, so set headers here
+              res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              return res.sendFile(path.join(kycUploadsPath, candidate));
+            }
+          } catch (error) {
+            console.warn('Uploads fallback search failed:', error.message);
+          }
+        }
+      }
+  }
+
+    next();
+  }, express.static(uploadsPath, {
+    setHeaders: function (res, filePath) {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      // allow embedding images in other origins
+      res.removeHeader && res.removeHeader('Cross-Origin-Opener-Policy');
+    }
+  }));
+
 // API Routes
+app.use('/auth', authRoutes);
+// Backwards-compatible mounts for clients that include /api prefix
 app.use('/api/auth', authRoutes);
+console.log('Mounted auth routes under /auth and /api/auth');
+app.use('/notifications', notificationRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/kyc', kycRoutes);
 app.use('/api/kyc', kycRoutes);
+app.use('/admin', adminRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/debug', debugRoutes);
+console.log('Mounted admin routes under /admin and /api/admin');
+console.log('Mounted debug routes under /debug');
 
 // Not found handler
 app.use((req, res) => {
@@ -105,6 +230,25 @@ const initializeConnections = async () => {
     }
 
     // Initialize database schema (if needed)
+    await query(`
+      CREATE TABLE IF NOT EXISTS admin_notifications (
+        id SERIAL PRIMARY KEY,
+        type VARCHAR(50) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        data JSONB,
+        priority VARCHAR(20) DEFAULT 'normal',
+        read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_admin_notifications_read ON admin_notifications(read)
+    `);
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_admin_notifications_created_at ON admin_notifications(created_at)
+    `);
     console.log('✓ Database schema is ready');
 
     // Connect to RabbitMQ

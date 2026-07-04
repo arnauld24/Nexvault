@@ -31,7 +31,7 @@ class KYCService {
       }
 
       // Create uploads directory if it doesn't exist
-      const uploadsDir = path.join(__dirname, '../../uploads/kyc');
+      const uploadsDir = path.resolve(__dirname, '../uploads/kyc');
       console.log(`[${timestamp}] 📁 Creating uploads directory: ${uploadsDir}`);
       await fs.mkdir(uploadsDir, { recursive: true });
 
@@ -210,6 +210,16 @@ class KYCService {
         approvedAt: verifiedAt,
         documentsCount: pendingDocs.length,
       });
+      await publishEvent('nexvault.notifications', 'email', {
+        type: 'kyc_approved',
+        email: user.email,
+        title: 'KYC Verification Approved',
+        message: `Hello ${user.first_name || 'there'}, your identity verification has been approved. You can now access the full NexVault experience.`,
+        data: {
+          userId,
+          approvedAt: verifiedAt,
+        },
+      });
       console.log(`[${timestamp}] 📤 KYC approved event published`);
 
       return {
@@ -273,6 +283,16 @@ class KYCService {
         rejectionReason,
         rejectedAt: new Date(),
         documentsCount: pendingDocs.length,
+      });
+      await publishEvent('nexvault.notifications', 'email', {
+        type: 'kyc_rejected',
+        email: user.email,
+        title: 'KYC Verification Update',
+        message: `Hello ${user.first_name || 'there'}, your identity verification was not approved. Please review the feedback and resubmit the requested documents.`,
+        data: {
+          userId,
+          rejectionReason,
+        },
       });
       console.log(`[${timestamp}] 📤 KYC rejected event published`);
 

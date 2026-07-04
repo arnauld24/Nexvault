@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     -- Wallet relationships
     wallet_id UUID NOT NULL REFERENCES wallets(id),
     counterparty_wallet_id UUID REFERENCES wallets(id), -- For transfers between wallets
+    from_entity VARCHAR(255), -- e.g., external source or service
+    to_entity VARCHAR(255),
     external_account_id UUID, -- For bank accounts, cards, etc.
 
     -- Transaction details
@@ -341,7 +343,7 @@ CREATE OR REPLACE FUNCTION process_transaction(
     p_wallet_id UUID,
     p_amount DECIMAL,
     p_fee DECIMAL DEFAULT 0,
-    p_type VARCHAR
+    p_type VARCHAR DEFAULT 'credit'
 ) RETURNS VOID AS $$
 DECLARE
     net_amount DECIMAL;

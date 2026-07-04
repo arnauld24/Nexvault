@@ -34,6 +34,7 @@ export default function AdminDashboard() {
     { label: 'Total Transactions', value: adminStats.totalTransactions.toLocaleString(), icon: ArrowLeftRight, color: '#6366f1', bg: '#eef2ff', change: 'All time' },
     { label: 'Transaction Volume', value: `${(adminStats.totalVolume / 1_000_000).toFixed(1)}M`, icon: TrendingUp, color: 'var(--success)', bg: 'var(--success-light)', change: 'This month' },
     { label: 'Pending KYC', value: adminStats.pendingKyc.toLocaleString(), icon: Clock, color: '#f59e0b', bg: 'var(--warning-light)', change: 'Requires review' },
+    { label: 'Pending Transactions', value: adminStats.pendingTransactions ? adminStats.pendingTransactions.toLocaleString() : '0', icon: List, color: '#6366f1', bg: '#eef2ff', change: 'Needs validation' },
     { label: 'Monthly Growth', value: `${adminStats.monthlyGrowth}%`, icon: BarChart2, color: 'var(--success)', bg: 'var(--success-light)', change: 'vs last month' },
   ];
 

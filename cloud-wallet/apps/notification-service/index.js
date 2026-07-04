@@ -310,6 +310,46 @@ const initializeRabbitMQConsumers = async () => {
             `,
             message.data
           );
+        } else if (message.type === 'account_suspended') {
+          console.log(`[${new Date().toISOString()}] 📧 Sending account suspended email to: ${message.email}`);
+          await sendEmailNotification(
+            message.email,
+            'Your NexVault Account Has Been Suspended',
+            `
+              <p>Dear User,</p>
+              <p>Your NexVault account has been temporarily suspended while we investigate activity.</p>
+              <p>If you believe this is an error or need assistance, please contact our support team.</p>
+              ${message.data?.reason ? `<p><strong>Reason:</strong> ${message.data.reason}</p>` : ''}
+              <p>Best regards,<br/>The NexVault Team</p>
+            `,
+            message.data
+          );
+        } else if (message.type === 'account_reactivated') {
+          console.log(`[${new Date().toISOString()}] 📧 Sending account reactivated email to: ${message.email}`);
+          await sendEmailNotification(
+            message.email,
+            'Your NexVault Account Is Active Again',
+            `
+              <p>Dear User,</p>
+              <p>Good news — your NexVault account has been reinstated and is now active again.</p>
+              <p>You can log in and continue using your wallet services.</p>
+              <p>Best regards,<br/>The NexVault Team</p>
+            `,
+            message.data
+          );
+        } else if (message.type === 'account_disabled') {
+          console.log(`[${new Date().toISOString()}] 📧 Sending account disabled email to: ${message.email}`);
+          await sendEmailNotification(
+            message.email,
+            'Your NexVault Account Has Been Disabled',
+            `
+              <p>Dear User,</p>
+              <p>Your NexVault account has been disabled.</p>
+              <p>If you need assistance or want to restore access, please contact our support team.</p>
+              <p>Best regards,<br/>The NexVault Team</p>
+            `,
+            message.data
+          );
         }
       } catch (error) {
         console.error('Error processing email notification:', error);

@@ -5,7 +5,7 @@ const config = require('../config/config');
 class Session {
   // Create a new session
   static async create(sessionData) {
-    const { userId, userAgent, ipAddress, deviceName, deviceType, refreshToken } = sessionData;
+    const { userId, adminId, userAgent, ipAddress, deviceName, deviceType, refreshToken } = sessionData;
     const sessionId = uuidv4();
     const sessionToken = uuidv4();
     
@@ -14,10 +14,10 @@ class Session {
 
     try {
       const result = await query(
-        `INSERT INTO sessions (id, user_id, session_token, refresh_token, user_agent, ip_address, device_name, device_type, expires_at, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
+        `INSERT INTO sessions (id, user_id, admin_id, session_token, refresh_token, user_agent, ip_address, device_name, device_type, expires_at, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
          RETURNING id, session_token, refresh_token, expires_at, created_at`,
-        [sessionId, userId, sessionToken, refreshToken || null, userAgent || null, ipAddress || null, deviceName || null, deviceType || null, expiresAt]
+        [sessionId, userId || null, adminId || null, sessionToken, refreshToken || null, userAgent || null, ipAddress || null, deviceName || null, deviceType || null, expiresAt]
       );
       return result.rows[0];
     } catch (error) {
@@ -29,9 +29,10 @@ class Session {
   static async findByToken(token) {
     try {
       const result = await query(
-        `SELECT s.*, u.id as user_id, u.email 
+        `SELECT s.*, u.email as user_email, a.email as admin_email
          FROM sessions s
-         JOIN users u ON s.user_id = u.id
+         LEFT JOIN users u ON s.user_id = u.id
+         LEFT JOIN admins a ON s.admin_id = a.id
          WHERE s.session_token = $1 AND s.is_active = TRUE AND s.expires_at > CURRENT_TIMESTAMP`,
         [token]
       );
@@ -41,15 +42,16 @@ class Session {
     }
   }
 
-  // Get all active sessions for a user
-  static async getActiveSessions(userId) {
+  // Get all active sessions for a user or admin
+  static async getActiveSessions(ownerId, ownerType = 'user') {
     try {
+      const ownerField = ownerType === 'admin' ? 'admin_id' : 'user_id';
       const result = await query(
         `SELECT id, device_name, device_type, ip_address, last_activity, created_at, expires_at
          FROM sessions
-         WHERE user_id = $1 AND is_active = TRUE AND expires_at > CURRENT_TIMESTAMP
+         WHERE ${ownerField} = $1 AND is_active = TRUE AND expires_at > CURRENT_TIMESTAMP
          ORDER BY last_activity DESC, created_at DESC`,
-        [userId]
+        [ownerId]
       );
       return result.rows;
     } catch (error) {
@@ -100,14 +102,15 @@ class Session {
     }
   }
 
-  // Revoke all user sessions
-  static async revokeAllSessions(userId) {
+  // Revoke all sessions for a user or admin
+  static async revokeAllSessions(ownerId, ownerType = 'user') {
     try {
+      const ownerField = ownerType === 'admin' ? 'admin_id' : 'user_id';
       const result = await query(
         `UPDATE sessions SET is_active = FALSE 
-         WHERE user_id = $1 AND is_active = TRUE
+         WHERE ${ownerField} = $1 AND is_active = TRUE
          RETURNING id`,
-        [userId]
+        [ownerId]
       );
       return result.rows.length;
     } catch (error) {

@@ -6,17 +6,49 @@ import { useAuth } from './AuthContext';
 const KYCContext = createContext(null);
 
 export function KYCProvider({ children }) {
-  const { isAuthenticated } = useAuth();
-  const [kycStatus, setKycStatus] = useState('unverified');
-  const [kycDocuments, setKycDocuments] = useState([]);
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  
+  // Initialize from localStorage cache to avoid showing banner on reload
+  const [kycStatus, setKycStatus] = useState(() => {
+    try {
+      return localStorage.getItem('nv_kyc_status') || 'unverified';
+    } catch {
+      return 'unverified';
+    }
+  });
+  
+  const [kycDocuments, setKycDocuments] = useState(() => {
+    try {
+      const cached = localStorage.getItem('nv_kyc_documents');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [initializing, setInitializing] = useState(true); // Prevents banner flash on first load
 
   useEffect(() => {
-    if (!isAuthenticated || hasLoaded) return;
+    // Mark initialization as complete after a tick to allow cached state to render
+    const timer = setTimeout(() => setInitializing(false), 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    // Wait for auth to finish loading before attempting to load KYC
+    if (authLoading) return;
+    
+    // If we've already loaded, don't load again
+    if (hasLoaded) return;
+    
+    // Don't load if not authenticated
+    if (!isAuthenticated) return;
+    
     loadKycStatus();
-  }, [isAuthenticated, hasLoaded]);
+  }, [isAuthenticated, hasLoaded, authLoading]);
 
   const loadKycStatus = async () => {
     if (loading) return; // Prevent multiple simultaneous calls
@@ -46,7 +78,6 @@ export function KYCProvider({ children }) {
       const cachedDocuments = localStorage.getItem('nv_kyc_documents');
 
       setKycStatus(cachedStatus);
-      setHasLoaded(true);
       if (cachedDocuments) {
         try {
           setKycDocuments(JSON.parse(cachedDocuments));
@@ -54,6 +85,7 @@ export function KYCProvider({ children }) {
           setKycDocuments([]);
         }
       }
+      setHasLoaded(true);
     } finally {
       setLoading(false);
     }
@@ -128,6 +160,7 @@ export function KYCProvider({ children }) {
       kycDocuments,
       loading,
       error,
+      initializing,
       submitKYC,
       refreshKycStatus,
       loadKycStatus,

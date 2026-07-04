@@ -1,10 +1,13 @@
 const express = require('express');
 const AuthService = require('../services/AuthService');
 const User = require('../models/User');
-const { authenticateToken } = require('../middleware/auth');
+const Admin = require('../models/Admin');
+const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const { loginLimiter, registerLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
+
+console.log('Auth routes loaded: /register, /login, /admin/login, /refresh-token, /verify-token, /logout, /profile, /sessions and more');
 
 // Register route
 router.post('/register', registerLimiter, async (req, res) => {
@@ -69,6 +72,37 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 });
 
+// Admin login route
+router.post('/admin/login', loginLimiter, async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 🔓 ADMIN LOGIN ATTEMPT`);
+  console.log(`[${timestamp}] Request received: email=${req.body.email}`);
+
+  try {
+    const { email, password, deviceName, deviceType } = req.body;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+
+    const result = await AuthService.loginAdmin(
+      email,
+      password,
+      ipAddress,
+      userAgent,
+      deviceName,
+      deviceType
+    );
+
+    console.log(`[${timestamp}] ✓ Admin login successful for admin: ${result.admin?.id}`);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error(`[${timestamp}] ✗ Admin login failed: ${error.message}`);
+    res.status(401).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
 // Refresh token route
 router.post('/refresh-token', async (req, res) => {
   try {
@@ -88,8 +122,29 @@ router.post('/refresh-token', async (req, res) => {
 // Verify token route
 router.post('/verify-token', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    if (req.user.role === 'admin') {
+      const admin = await Admin.findById(req.user.adminId);
+      if (!admin) {
+        return res.status(404).json({
+          success: false,
+          message: 'Admin not found',
+        });
+      }
 
+      return res.status(200).json({
+        success: true,
+        admin: {
+          id: admin.id,
+          email: admin.email,
+          firstName: admin.first_name,
+          lastName: admin.last_name,
+          role: admin.role,
+          createdAt: admin.created_at,
+        },
+      });
+    }
+
+    const userId = req.user.userId;
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({
@@ -149,9 +204,9 @@ router.get('/users/search', authenticateToken, async (req, res) => {
 router.post('/logout', authenticateToken, async (req, res) => {
   try {
     const { sessionId } = req.body;
-    const userId = req.user.userId;
+    const accountId = req.user.userId || req.user.adminId;
 
-    const result = await AuthService.logout(sessionId, userId);
+    const result = await AuthService.logout(sessionId, accountId);
 
     res.status(200).json(result);
   } catch (error) {
@@ -165,9 +220,10 @@ router.post('/logout', authenticateToken, async (req, res) => {
 // Logout from all devices
 router.post('/logout-all', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const accountId = req.user.userId || req.user.adminId;
+    const role = req.user.role || 'user';
 
-    const result = await AuthService.logoutAllDevices(userId);
+    const result = await AuthService.logoutAllDevices(accountId, role);
 
     res.status(200).json(result);
   } catch (error) {
@@ -229,9 +285,10 @@ router.post('/reset-password', async (req, res) => {
 // Get active sessions
 router.get('/sessions', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const accountId = req.user.userId || req.user.adminId;
+    const role = req.user.role || 'user';
 
-    const sessions = await AuthService.getActiveSessions(userId);
+    const sessions = await AuthService.getActiveSessions(accountId, role);
 
     res.status(200).json({
       success: true,
@@ -249,9 +306,10 @@ router.get('/sessions', authenticateToken, async (req, res) => {
 router.post('/sessions/:sessionId/revoke', authenticateToken, async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const userId = req.user.userId;
+    const accountId = req.user.userId || req.user.adminId;
+    const role = req.user.role || 'user';
 
-    const result = await AuthService.revokeDeviceSession(sessionId, userId);
+    const result = await AuthService.revokeDeviceSession(sessionId, accountId, role);
 
     res.status(200).json(result);
   } catch (error) {
@@ -262,25 +320,33 @@ router.post('/sessions/:sessionId/revoke', authenticateToken, async (req, res) =
   }
 });
 
-// Verify token (check if token is valid)
-router.post('/verify-token', authenticateToken, async (req, res) => {
-  try {
-    res.status(200).json({
-      success: true,
-      message: 'Token is valid',
-      user: req.user,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  }
-});
-
-// Get full user profile
+// Get full profile
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
+    if (req.user.role === 'admin') {
+      const admin = await Admin.findById(req.user.adminId);
+      if (!admin) {
+        return res.status(404).json({
+          success: false,
+          message: 'Admin not found',
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        admin: {
+          id: admin.id,
+          email: admin.email,
+          firstName: admin.first_name,
+          lastName: admin.last_name,
+          role: admin.role,
+          isActive: admin.is_active,
+          createdAt: admin.created_at,
+          lastLoginAt: admin.last_login_at,
+        },
+      });
+    }
+
     const userId = req.user.userId;
     const user = await User.findById(userId);
 

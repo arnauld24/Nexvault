@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const KYCService = require('../services/KYCService');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, authorizeRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -194,9 +194,17 @@ router.get('/status', authenticateToken, async (req, res) => {
 // Get KYC documents
 router.get('/documents', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const requestedUserId = req.query.userId || req.user.userId;
+    const isAdmin = req.user?.role === 'admin';
 
-    const result = await KYCService.getKycDocuments(userId);
+    if (requestedUserId !== req.user.userId && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: insufficient permissions',
+      });
+    }
+
+    const result = await KYCService.getKycDocuments(requestedUserId);
 
     res.status(200).json(result);
   } catch (error) {
@@ -278,14 +286,18 @@ router.post('/resubmit/:documentId', authenticateToken, upload.single('file'), a
 
 // Admin routes (these would typically require admin authentication)
 // Get pending KYC documents
-router.get('/admin/pending', authenticateToken, async (req, res) => {
+router.get('/admin/pending', authenticateToken, authorizeRole('admin'), async (req, res) => {
   try {
-    // TODO: Add admin role check
     const { limit = 50, offset = 0 } = req.query;
 
     const result = await KYCService.getPendingKycDocuments(parseInt(limit), parseInt(offset));
 
-    res.status(200).json(result);
+    res.status(200).json({
+      success: true,
+      documents: result.documents,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
   } catch (error) {
     console.error('Get pending KYC documents route error:', error);
     res.status(500).json({
@@ -296,11 +308,10 @@ router.get('/admin/pending', authenticateToken, async (req, res) => {
 });
 
 // Admin: Approve KYC
-router.post('/admin/:userId/approve', authenticateToken, async (req, res) => {
+router.post('/admin/:userId/approve', authenticateToken, authorizeRole('admin'), async (req, res) => {
   try {
-    // TODO: Add admin role check
     const { userId } = req.params;
-    const adminId = req.user.userId;
+    const adminId = req.user.adminId;
 
     const result = await KYCService.approveKyc(userId, adminId);
 
@@ -315,12 +326,11 @@ router.post('/admin/:userId/approve', authenticateToken, async (req, res) => {
 });
 
 // Admin: Reject KYC
-router.post('/admin/:userId/reject', authenticateToken, async (req, res) => {
+router.post('/admin/:userId/reject', authenticateToken, authorizeRole('admin'), async (req, res) => {
   try {
-    // TODO: Add admin role check
     const { userId } = req.params;
     const { rejectionReason } = req.body;
-    const adminId = req.user.userId;
+    const adminId = req.user.adminId;
 
     if (!rejectionReason || rejectionReason.trim().length === 0) {
       return res.status(400).json({
@@ -342,10 +352,8 @@ router.post('/admin/:userId/reject', authenticateToken, async (req, res) => {
 });
 
 // Get KYC statistics
-router.get('/admin/stats', authenticateToken, async (req, res) => {
+router.get('/admin/stats', authenticateToken, authorizeRole('admin'), async (req, res) => {
   try {
-    // TODO: Add admin role check
-
     const result = await KYCService.getKycStats();
 
     res.status(200).json(result);

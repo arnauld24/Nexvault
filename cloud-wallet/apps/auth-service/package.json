@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "node --test tests/**/*.test.js"
+    "test": "node --test tests/**/*.test.js",
+    "seed-admin": "node seedAdmin.js"
   },
   "keywords": [
     "auth",
@@ -19,6 +20,7 @@
   "type": "commonjs",
   "dependencies": {
     "amqplib": "^1.0.3",
+    "axios": "^1.7.4",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

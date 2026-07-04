@@ -148,9 +148,25 @@ export function WalletProvider({ children }) {
     return response;
   };
 
-  const withdraw = async (amount, bankName, accountNumber) => {
-    const bankDetails = { bankName, accountNumber };
-    const response = await apiClient.withdraw(amount, bankDetails, 'XAF');
+  const withdraw = async (amount, withdrawalType, details) => {
+    let description, destination, payload;
+    
+    if (withdrawalType === 'bank') {
+      const { bankName, accountNumber, accountName } = details;
+      description = `Withdrawal to ${bankName}`;
+      destination = `${bankName} ••••${accountNumber.slice(-4)}`;
+      payload = { amount, withdrawalType: 'bank', bankDetails: { bankName, accountNumber, accountName } };
+    } else if (withdrawalType === 'mobile') {
+      const { provider, phone, name } = details;
+      const providerName = provider === 'orange' ? 'Orange Money' : 'MTN Mobile Money';
+      description = `Withdrawal to ${providerName}`;
+      destination = `${providerName} ••••${phone.slice(-4)}`;
+      payload = { amount, withdrawalType: 'mobile', mobileDetails: { provider, phone, accountName: name } };
+    } else {
+      throw new Error('Invalid withdrawal type');
+    }
+
+    const response = await apiClient.withdraw(payload.amount, payload, 'XAF');
     if (!response.success) {
       throw new Error(response.message || 'Withdrawal failed');
     }
@@ -160,13 +176,13 @@ export function WalletProvider({ children }) {
       id: txRef,
       type: 'debit',
       category: 'withdrawal',
-      description: `Withdrawal to ${bankName}`,
+      description,
       amount,
       currency: response.currency || 'XAF',
       date: new Date().toISOString(),
       status: response.status || 'pending',
       from: 'My Wallet',
-      to: `${bankName} ••••${accountNumber.slice(-4)}`,
+      to: destination,
       reference: txRef,
       fee: response.fee ?? 0,
       note: response.note || '',

@@ -9,9 +9,10 @@ const axios = require('axios');
 const app = express();
 
 // Configuration
-const AUTH_SERVICE_URL = 'http://localhost:3001';
+const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
 const WALLET_SERVICE_URL = process.env.WALLET_SERVICE_URL || 'http://localhost:3003';
 const WALLET_SERVICE_JAVA_URL = process.env.WALLET_SERVICE_JAVA_URL || 'http://localhost:8080';
+const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
 const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3002';
 const PORT = process.env.PORT || 4000;
 
@@ -79,10 +80,11 @@ app.get('/health', (req, res) => {
 // Service health check endpoints
 app.get('/health/services', async (req, res) => {
   try {
-    const [authHealth, walletHealth, walletJavaHealth, notificationHealth] = await Promise.allSettled([
+    const [authHealth, walletHealth, walletJavaHealth, paymentHealth, notificationHealth] = await Promise.allSettled([
       axios.get(`${AUTH_SERVICE_URL}/health`),
       axios.get(`${WALLET_SERVICE_URL}/health`),
       axios.get(`${WALLET_SERVICE_JAVA_URL}/health`),
+      axios.get(`${PAYMENT_SERVICE_URL}/health`),
       axios.get(`${NOTIFICATION_SERVICE_URL}/health`),
     ]);
 
@@ -100,6 +102,10 @@ app.get('/health/services', async (req, res) => {
         wallet_java: {
           status: walletJavaHealth.status === 'fulfilled' ? 'online' : 'offline',
           url: WALLET_SERVICE_JAVA_URL,
+        },
+        payment: {
+          status: paymentHealth.status === 'fulfilled' ? 'online' : 'offline',
+          url: PAYMENT_SERVICE_URL,
         },
         notification: {
           status: notificationHealth.status === 'fulfilled' ? 'online' : 'offline',
@@ -125,15 +131,15 @@ const proxyLogger = (proxyRes, req, res) => {
 };
 
 // All auth endpoints are proxied to the Auth Service
-app.use('/api/auth', (req, res, next) => {
-  console.log(`[${new Date().toISOString()}] Matched /api/auth route for ${req.method} ${req.path}`);
-  next();
-}, createProxyMiddleware({
+app.use('/api/auth', createProxyMiddleware({
   target: AUTH_SERVICE_URL,
   changeOrigin: true,
-  router: (req) => `${AUTH_SERVICE_URL}/api/auth`,
   proxyTimeout: 20000,
   timeout: 20000,
+  pathRewrite: (path, req) => req.originalUrl.replace(/^\/api\/auth/, '/auth'),
+  onProxyReq: (proxyReq, req, res) => {
+    console.log(`[${new Date().toISOString()}] Proxying ${req.method} ${req.originalUrl} to ${AUTH_SERVICE_URL}${proxyReq.path}`);
+  },
   onProxyRes: proxyLogger,
   onError: (err, req, res) => {
     console.error('Auth Service Error:', err);
@@ -149,14 +155,32 @@ app.use('/api/auth', (req, res, next) => {
 app.use('/api/notifications', createProxyMiddleware({
   target: AUTH_SERVICE_URL,
   changeOrigin: true,
-  router: (req) => `${AUTH_SERVICE_URL}/api/notifications`,
   proxyTimeout: 20000,
   timeout: 20000,
+  pathRewrite: (path, req) => req.originalUrl.replace(/^\/api\/notifications/, '/notifications'),
   onError: (err, req, res) => {
     console.error('Notification Service Error:', err);
     res.status(503).json({
       success: false,
       message: 'Notification Service is unavailable',
+      error: err.message,
+    });
+  },
+}));
+
+// Admin endpoints via Auth Service
+app.use('/api/admin', createProxyMiddleware({
+  target: AUTH_SERVICE_URL,
+  changeOrigin: true,
+  proxyTimeout: 20000,
+  timeout: 20000,
+  pathRewrite: (path, req) => req.originalUrl.replace(/^\/api\/admin/, '/admin'),
+  onProxyRes: proxyLogger,
+  onError: (err, req, res) => {
+    console.error('Auth Service Admin proxy error:', err);
+    res.status(503).json({
+      success: false,
+      message: 'Auth Service admin endpoints are unavailable',
       error: err.message,
     });
   },
@@ -197,16 +221,30 @@ walletPaths.forEach(path => {
     app.use(path, createProxyMiddleware(walletProxyOptions));
 });
 
+// Payment endpoints belong to the Payment Service
+app.use('/api/payments', createProxyMiddleware({
+  target: PAYMENT_SERVICE_URL,
+  changeOrigin: true,
+  proxyTimeout: 20000,
+  timeout: 20000,
+  pathRewrite: (path, req) => req.originalUrl.replace(/^\/api\/payments/, '/api/payments'),
+  onError: (err, req, res) => {
+    console.error('Payment Service Error:', err);
+    res.status(503).json({
+      success: false,
+      message: 'Payment Service is unavailable',
+      error: err.message,
+    });
+  },
+}));
+
 // KYC endpoints belong to Auth Service, not Wallet Service
 app.use('/api/kyc', createProxyMiddleware({
   target: AUTH_SERVICE_URL,
   changeOrigin: true,
   proxyTimeout: 20000,
   timeout: 20000,
-  pathRewrite: (path, req) => {
-    if (path.startsWith('/api/kyc')) return path;
-    return `/api/kyc${path}`;
-  },
+  pathRewrite: (path, req) => req.originalUrl.replace(/^\/api\/kyc/, '/kyc'),
   onProxyRes: proxyLogger,
   onError: (err, req, res) => {
     console.error('Auth Service KYC proxy error:', err);
@@ -312,6 +350,15 @@ app.get('/api/docs', (req, res) => {
         ],
       },
       {
+        name: 'Payment Service',
+        prefix: '/api/payments',
+        endpoints: [
+          'POST /api/payments/direct',
+          'POST /api/payments/initiate',
+          'POST /api/payments/webhook',
+        ],
+      },
+      {
         name: 'KYC Service',
         prefix: '/api/kyc',
         endpoints: [
@@ -355,7 +402,8 @@ app.listen(PORT, () => {
   console.log(`📡 Auth Service: ${AUTH_SERVICE_URL}`);
   console.log(`💳 Wallet Service: ${WALLET_SERVICE_URL}`);
   console.log(`💳 Wallet Service Java: ${WALLET_SERVICE_JAVA_URL}`);
-  console.log(`📧 Notification Service: ${NOTIFICATION_SERVICE_URL}`);
+  console.log(`� Payment Service: ${PAYMENT_SERVICE_URL}`);
+  console.log(`�📧 Notification Service: ${NOTIFICATION_SERVICE_URL}`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api/docs`);
   console.log(`✅ Health Check: http://localhost:${PORT}/health`);
 });

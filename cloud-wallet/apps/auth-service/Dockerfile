@@ -20,9 +20,13 @@ COPY --from=builder /app/node_modules ./node_modules
 # Copy application files
 COPY . .
 
-# Create non-root user for security
+# Create non-root user for security and prepare uploads directory
+# Create the uploads directory and make it owned by the node user so the
+# runtime process can write files there.
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+    adduser -S nodejs -u 1001 && \
+    mkdir -p /app/uploads/kyc && \
+    chown -R nodejs:nodejs /app/uploads
 
 USER nodejs
 

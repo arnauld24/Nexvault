@@ -5,12 +5,14 @@ import {
   ArrowLeftRight, ArrowDownLeft, ArrowUpRight, History,
   TrendingUp, TrendingDown, BarChart2, Gift,
   CheckCircle, ArrowRight, Banknote, RefreshCw, ArrowUpFromLine,
+  Bell, X,
 } from 'lucide-react';
 import DashboardLayout from '../components/layout/DashboardLayout';
 import KYCBanner from '../components/KYCBanner';
 import { useKYC } from '../context/KYCContext';
 import { useAuth } from '../context/AuthContext';
 import { useWallet } from '../context/WalletContext';
+import { useNotifications, NotificationProvider } from '../context/NotificationContext';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import './Dashboard.css';
 
@@ -32,7 +34,9 @@ export default function Dashboard() {
   const { kycStatus } = useKYC();
   const { user } = useAuth();
   const { balance, transactions, hideBalance } = useWallet();
+  const { notifications, unreadCount, markAsRead } = useNotifications();
   const recentTx = transactions.slice(0, 5);
+  const recentNotifications = notifications.slice(0, 5);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -102,6 +106,55 @@ export default function Dashboard() {
   return (
     <DashboardLayout>
       <KYCBanner />
+      
+      {/* Notifications Section
+      {recentNotifications.length > 0 && (
+        <div style={notifStyles.container}>
+          <div style={notifStyles.header}>
+            <Bell size={18} style={{ color: '#0056B3' }} />
+            <div style={notifStyles.headerText}>
+              <div style={notifStyles.title}>Recent Updates ({unreadCount} unread)</div>
+              <div style={notifStyles.subtitle}>Important notifications about your account</div>
+            </div>
+          </div>
+          <div style={notifStyles.list}>
+            {recentNotifications.map((n, idx) => {
+              const typeColors = {
+                'info': '#3b82f6',
+                'success': '#10b981',
+                'warning': '#f59e0b',
+                'error': '#ef4444',
+              };
+              const bgColor = n.read ? 'transparent' : '#eff6ff';
+              const color = typeColors[n.type] || '#0056B3';
+              
+              return (
+                <div 
+                  key={n.id} 
+                  style={{ ...notifStyles.item, background: bgColor, borderLeft: `3px solid ${color}` }}
+                  onClick={() => !n.read && markAsRead(n.id)}
+                  role="button"
+                >
+                  <div style={notifStyles.itemContent}>
+                    <div style={notifStyles.itemTitle}>{n.title}</div>
+                    <div style={notifStyles.itemMessage}>{n.message}</div>
+                    <div style={notifStyles.itemTime}>
+                      {new Date(n.createdAt).toLocaleString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                      })}
+                    </div>
+                  </div>
+                  {!n.read && <div style={notifStyles.unreadDot} />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )} */}
+      
       <div className="page-header">
         <h1>{greeting}, {userName.split(' ')[0]}</h1>
         <p>Here's what's happening with your wallet today.</p>
@@ -265,3 +318,75 @@ export default function Dashboard() {
     </DashboardLayout>
   );
 }
+
+// Notification styles
+const notifStyles = {
+  container: {
+    background: '#eff6ff',
+    border: '1px solid #bfdbfe',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '24px',
+    animation: 'slideDown 0.3s ease-out',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '12px',
+    marginBottom: '12px',
+  },
+  headerText: {
+    flex: 1,
+  },
+  title: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#1e40af',
+    marginBottom: '2px',
+  },
+  subtitle: {
+    fontSize: '12px',
+    color: '#64748b',
+  },
+  list: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  item: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '12px',
+    background: 'white',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'background 0.2s',
+  },
+  itemContent: {
+    flex: 1,
+  },
+  itemTitle: {
+    fontSize: '13px',
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: '4px',
+  },
+  itemMessage: {
+    fontSize: '12px',
+    color: '#475569',
+    lineHeight: '1.4',
+    marginBottom: '4px',
+  },
+  itemTime: {
+    fontSize: '10px',
+    color: '#94a3b8',
+  },
+  unreadDot: {
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    background: '#3b82f6',
+    flexShrink: 0,
+    marginLeft: '8px',
+  },
+};

@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { generateToken, generateRefreshToken } = require('../middleware/auth');
 const User = require('../models/User');
+const Admin = require('../models/Admin');
 const Session = require('../models/Session');
 const Notification = require('../models/Notification');
 const { publishEvent } = require('../config/rabbitmq');
@@ -224,6 +225,17 @@ class AuthService {
         data: { ipAddress, deviceName, deviceType },
         priority: 'normal',
       }).catch((err) => console.error('Login notification creation failed:', err)),
+      query(
+        `INSERT INTO admin_notifications (type, title, message, data, priority)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          'user.login',
+          'User login detected',
+          `User ${email} signed in from ${deviceName || 'Unknown device'}`,
+          JSON.stringify({ userId: user.id, email: user.email, ipAddress, deviceName, deviceType }),
+          'normal',
+        ]
+      ).catch((err) => console.error('Admin login notification creation failed:', err)),
     ]);
 
     return {
@@ -245,6 +257,56 @@ class AuthService {
     };
   }
 
+  // Admin login
+  static async loginAdmin(email, password, ipAddress, userAgent, deviceName, deviceType) {
+    if (!email || !password) {
+      throw new Error('Email and password are required');
+    }
+
+    const admin = await Admin.findByEmail(email);
+    if (!admin) {
+      throw new Error('Invalid email or password');
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, admin.password_hash);
+    if (!isPasswordValid) {
+      throw new Error('Invalid email or password');
+    }
+
+    if (!admin.is_active) {
+      throw new Error('Admin account is not active. Please contact support.');
+    }
+
+    const accessToken = generateToken({ adminId: admin.id, email: admin.email, role: 'admin' });
+    const refreshToken = generateRefreshToken({ adminId: admin.id, email: admin.email, role: 'admin' });
+    const session = await Session.create({
+      adminId: admin.id,
+      userAgent,
+      ipAddress,
+      deviceName,
+      deviceType,
+      refreshToken,
+    });
+
+    void Admin.updateLastLogin(admin.id).catch((err) => console.error('Admin last login update failed:', err));
+
+    return {
+      success: true,
+      message: 'Admin login successful',
+      accessToken,
+      refreshToken,
+      sessionId: session.id,
+      admin: {
+        id: admin.id,
+        email: admin.email,
+        firstName: admin.first_name,
+        lastName: admin.last_name,
+        role: admin.role,
+      },
+      expiresIn: '24h',
+    };
+  }
+
   // Refresh access token
   static async refreshToken(refreshToken) {
     if (!refreshToken) {
@@ -261,11 +323,18 @@ class AuthService {
       throw new Error('Invalid or expired refresh token');
     }
 
-    // Generate new access token
-    const newAccessToken = generateToken({
-      userId: decoded.userId,
+    const payload = {
       email: decoded.email,
-    });
+      role: decoded.role || 'user',
+    };
+
+    if (decoded.role === 'admin') {
+      payload.adminId = decoded.adminId;
+    } else {
+      payload.userId = decoded.userId;
+    }
+
+    const newAccessToken = generateToken(payload);
 
     return {
       success: true,
@@ -295,24 +364,27 @@ class AuthService {
   }
 
   // Logout from all devices
-  static async logoutAllDevices(userId) {
+  static async logoutAllDevices(accountId, role = 'user') {
     try {
-      const revokedCount = await Session.revokeAllSessions(userId);
+      const revokedCount = await Session.revokeAllSessions(accountId, role === 'admin' ? 'admin' : 'user');
 
       // Publish event
       await publishEvent('nexvault.events', 'user.logout.all', {
-        userId,
+        accountId,
+        role,
         timestamp: new Date(),
       });
 
-      // Create notification
-      await Notification.create({
-        userId,
-        type: 'security',
-        title: 'Logged out from all devices',
-        message: 'You have been logged out from all devices for security purposes.',
-        priority: 'high',
-      });
+      // Create notification only for user accounts
+      if (role !== 'admin') {
+        await Notification.create({
+          userId: accountId,
+          type: 'security',
+          title: 'Logged out from all devices',
+          message: 'You have been logged out from all devices for security purposes.',
+          priority: 'high',
+        }).catch(() => null);
+      }
 
       return {
         success: true,
@@ -457,27 +529,28 @@ class AuthService {
   }
 
   // Get active sessions
-  static async getActiveSessions(userId) {
+  static async getActiveSessions(ownerId, role = 'user') {
     try {
-      return await Session.getActiveSessions(userId);
+      return await Session.getActiveSessions(ownerId, role === 'admin' ? 'admin' : 'user');
     } catch (error) {
       throw new Error(`Failed to get sessions: ${error.message}`);
     }
   }
 
   // Revoke specific device session
-  static async revokeDeviceSession(sessionId, userId) {
+  static async revokeDeviceSession(sessionId, ownerId, role = 'user') {
     try {
       await Session.revoke(sessionId);
 
-      // Create notification
-      await Notification.create({
-        userId,
-        type: 'security',
-        title: 'Device session revoked',
-        message: 'A device session has been revoked.',
-        priority: 'normal',
-      });
+      if (role !== 'admin') {
+        await Notification.create({
+          userId: ownerId,
+          type: 'security',
+          title: 'Device session revoked',
+          message: 'A device session has been revoked.',
+          priority: 'normal',
+        });
+      }
 
       return {
         success: true,

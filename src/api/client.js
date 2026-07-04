@@ -348,13 +348,50 @@ class APIClient {
     });
   }
 
-  // Withdraw money
-  async withdraw(amount, bankDetails, currency = 'XAF') {
+  // Initiate Orange Money / MTN deposit through the payment service
+  async initiateMobileMoneyDeposit({ userId, amount, phone, medium, currency = 'XAF', reference, email, redirectUrl, message }) {
+    return this.fetchAPI('/payments/direct', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        amount,
+        phone,
+        medium,
+        currency,
+        reference,
+        email,
+        redirectUrl,
+        message,
+      }),
+    });
+  }
+
+  // Initiate paylink deposit through the payment service
+  async initiatePaylinkDeposit({ userId, amount, email, redirectUrl, message, currency = 'XAF', reference }) {
+    return this.fetchAPI('/payments/initiate', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        amount,
+        email,
+        redirectUrl,
+        message,
+        currency,
+        reference,
+      }),
+    });
+  }
+
+  // Withdraw money (supports both bank and mobile money withdrawals)
+  async withdraw(amount, withdrawalPayload, currency = 'XAF') {
+    // withdrawalPayload can be:
+    // { withdrawalType: 'bank', bankDetails: { bankName, accountNumber, accountName } }
+    // { withdrawalType: 'mobile', mobileDetails: { provider, phone, accountName } }
     return this.fetchAPI('/transactions/withdraw', {
       method: 'POST',
       body: JSON.stringify({
         amount,
-        bankDetails,
+        ...withdrawalPayload,
         currency,
       }),
     });

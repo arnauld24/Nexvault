@@ -29,10 +29,26 @@ CREATE TABLE IF NOT EXISTS users (
     deleted_at TIMESTAMP
 );
 
+-- Admins table
+CREATE TABLE IF NOT EXISTS admins (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    role VARCHAR(50) DEFAULT 'admin', -- admin, superadmin, support
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login_at TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+
 -- Sessions table (for session management)
 CREATE TABLE IF NOT EXISTS sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    admin_id UUID REFERENCES admins(id) ON DELETE CASCADE,
     session_token VARCHAR(500) UNIQUE NOT NULL,
     refresh_token VARCHAR(500) UNIQUE,
     ip_address VARCHAR(50),
@@ -44,7 +60,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT valid_expiry CHECK (expires_at > created_at)
+    CONSTRAINT valid_expiry CHECK (expires_at > created_at),
+    CONSTRAINT valid_session_owner CHECK (user_id IS NOT NULL OR admin_id IS NOT NULL)
 );
 
 -- Two-factor authentication codes
@@ -104,6 +121,19 @@ CREATE TABLE IF NOT EXISTS notifications (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Admin notifications table
+CREATE TABLE IF NOT EXISTS admin_notifications (
+    id SERIAL PRIMARY KEY,
+    type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    data JSONB,
+    priority VARCHAR(20) DEFAULT 'normal',
+    read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- KYC Documents table
 CREATE TABLE IF NOT EXISTS kyc_documents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -113,7 +143,7 @@ CREATE TABLE IF NOT EXISTS kyc_documents (
     status VARCHAR(50) DEFAULT 'pending', -- pending, verified, rejected
     rejection_reason TEXT,
     verified_at TIMESTAMP,
-    verified_by UUID, -- Reference to admin user
+    verified_by UUID REFERENCES admins(id), -- Reference to admin user
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -158,14 +188,30 @@ CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
 CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(type);
 CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
 
+CREATE INDEX IF NOT EXISTS idx_admin_notifications_read ON admin_notifications(read);
+CREATE INDEX IF NOT EXISTS idx_admin_notifications_created_at ON admin_notifications(created_at);
+
 CREATE INDEX IF NOT EXISTS idx_kyc_documents_user_id ON kyc_documents(user_id);
 CREATE INDEX IF NOT EXISTS idx_kyc_documents_status ON kyc_documents(status);
 
 CREATE INDEX IF NOT EXISTS idx_login_attempts_email ON login_attempts(email);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_created_at ON login_attempts(created_at);
 
+CREATE INDEX IF NOT EXISTS idx_admins_email ON admins(email);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+
+-- Seed default admin credentials
+INSERT INTO admins (email, password_hash, first_name, last_name, role, is_active)
+VALUES (
+    'admin@nexvault.local',
+    '$2b$10$eFWgD4CJjJqyQXCYyFtgf.u60JTKGZWoDksZRxv6lVN69BI4S83xW',
+    'System',
+    'Admin',
+    'superadmin',
+    TRUE
+)
+ON CONFLICT (email) DO NOTHING;
 
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()

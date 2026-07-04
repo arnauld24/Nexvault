@@ -87,6 +87,29 @@ const createAuthNotification = async (authHeader, notificationPayload) => {
   }
 };
 
+const createAdminNotification = async (authHeader, notificationPayload) => {
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Service-Secret': INTERNAL_SERVICE_SECRET,
+    };
+    if (authHeader) {
+      headers.Authorization = authHeader;
+    }
+
+    const response = await axios.post(
+      `${AUTH_SERVICE_URL}/api/admin/notifications`,
+      notificationPayload,
+      { headers, timeout: 10000 }
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error('Admin notification creation failed:', error.message || error);
+    return null;
+  }
+};
+
 // Middleware
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
@@ -236,6 +259,7 @@ async function initDatabase() {
         category VARCHAR(50) NOT NULL,
         description TEXT,
         amount DECIMAL(15,2) NOT NULL,
+        net_amount DECIMAL(15,2),
         currency VARCHAR(3) DEFAULT 'XAF',
         fee DECIMAL(15,2) DEFAULT 0,
         status VARCHAR(20) DEFAULT 'pending',
@@ -245,10 +269,20 @@ async function initDatabase() {
         bank_name VARCHAR(255),
         account_number VARCHAR(50),
         note TEXT,
+        notes JSONB,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Ensure columns expected by other services exist (compatibility for older DBs)
+    await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS from_entity VARCHAR(255);`);
+    await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS to_entity VARCHAR(255);`);
+    await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS net_amount DECIMAL(15,2);`);
+    await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS bank_name VARCHAR(255);`);
+    await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS account_number VARCHAR(50);`);
+    await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS note TEXT;`);
+    await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS notes JSONB;`);
 
     // Create kyc_status table if it doesn't exist
     await query(`
@@ -503,10 +537,11 @@ app.post(['/deposit', '/api/transactions/deposit'], authenticateToken, async (re
     const status = isCard ? 'completed' : 'pending';
     const txRef = reference || `DEP-${Date.now().toString().slice(-8)}`;
 
+    const netAmount = parseFloat(amount) - parseFloat(fee || 0);
     const txResult = await query(
-      `INSERT INTO transactions (wallet_id, type, category, description, amount, currency, fee, status, reference, from_entity, to_entity)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-      [walletId, 'credit', 'deposit', `Deposit via ${method}`, amount, currency, fee, status, txRef, method, 'My Wallet']
+      `INSERT INTO transactions (wallet_id, type, category, description, amount, net_amount, currency, fee, status, reference, from_entity, to_entity)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      [walletId, 'credit', 'deposit', `Deposit via ${method}`, amount, netAmount, currency, fee, status, txRef, method, 'My Wallet']
     );
 
     await query(
@@ -550,6 +585,14 @@ app.post(['/deposit', '/api/transactions/deposit'], authenticateToken, async (re
       priority: 'normal',
     });
 
+    await createAdminNotification(req.headers.authorization, {
+      type: 'wallet.deposit',
+      title: 'Deposit Received',
+      message: `User deposit of ${currency} ${amount} was ${isCard ? 'completed' : 'initiated'} (Ref: ${txRef})`,
+      data: { userId, transactionId: txResult.rows[0].id, transactionRef: txRef, amount, method, transactionType: 'deposit' },
+      priority: 'normal',
+    });
+
     res.status(200).json({
       success: true,
       message: 'Deposit processed successfully',
@@ -571,6 +614,314 @@ app.post(['/deposit', '/api/transactions/deposit'], authenticateToken, async (re
       message: 'Failed to process deposit',
       error: error.message,
     });
+  }
+});
+
+// ==================== INTERNAL TRANSACTION HOOKS FOR OTHER SERVICES ====================
+
+// Create a pending transaction internally (trusted services)
+app.post('/internal/transactions/create-pending', async (req, res) => {
+  try {
+    const secret = req.headers['x-service-secret'];
+    if (secret !== INTERNAL_SERVICE_SECRET) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+    const { userId, amount, method = 'fapshi', currency = 'XAF', reference } = req.body;
+    if (!userId || !amount) return res.status(400).json({ success: false, message: 'userId and amount required' });
+
+    // Ensure wallet exists
+    let wallet = await query('SELECT id FROM wallets WHERE user_id = $1', [userId]);
+    if (wallet.rows.length === 0) {
+      wallet = await query('INSERT INTO wallets (user_id, currency) VALUES ($1, $2) RETURNING *', [userId, currency]);
+    }
+
+    const walletId = wallet.rows[0].id;
+    const txRef = reference || `DEP-${Date.now().toString().slice(-8)}`;
+    const netAmount = parseFloat(amount) - 0;
+    const tx = await query(
+      `INSERT INTO transactions (wallet_id, type, category, description, amount, net_amount, currency, fee, status, reference, from_entity, to_entity)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      [walletId, 'credit', 'deposit', `Deposit via ${method}`, amount, netAmount, currency, 0, 'pending', txRef, method, 'My Wallet']
+    );
+
+    res.status(201).json({ success: true, transaction: { id: tx.rows[0].id, reference: txRef, amount: parseFloat(amount), status: 'pending' } });
+  } catch (error) {
+    console.error('Internal create pending error:', error);
+    res.status(500).json({ success: false, message: 'Failed to create pending transaction', error: error.message });
+  }
+});
+
+// Complete a pending transaction (called by payment gateway webhook)
+app.post('/internal/transactions/complete', async (req, res) => {
+  try {
+    const secret = req.headers['x-service-secret'];
+    if (secret !== INTERNAL_SERVICE_SECRET) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+    const { reference, event } = req.body;
+    if (!reference) return res.status(400).json({ success: false, message: 'reference required' });
+
+    const txResult = await query('SELECT * FROM transactions WHERE reference = $1 LIMIT 1', [reference]);
+    if (txResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Transaction not found' });
+    }
+
+    const tx = txResult.rows[0];
+    if (tx.status === 'completed') {
+      return res.status(200).json({ success: true, message: 'Transaction already completed' });
+    }
+
+    // Update transaction status to completed
+    await query('UPDATE transactions SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['completed', tx.id]);
+
+    // Credit wallet (amount - fee)
+    const creditAmount = parseFloat(tx.amount) - parseFloat(tx.fee || 0);
+    await query('UPDATE wallets SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [creditAmount, tx.wallet_id]);
+
+    // Fetch user id and email
+    const walletInfo = await query('SELECT user_id FROM wallets WHERE id = $1', [tx.wallet_id]);
+    const userId = walletInfo.rows[0].user_id;
+
+    // Publish notification if channel exists
+    if (rabbitmqChannel) {
+      await rabbitmqChannel.publish(
+        'nexvault.notifications',
+        'email',
+        Buffer.from(JSON.stringify({
+          type: 'deposit',
+          userId,
+          title: 'Deposit Completed',
+          message: `Your deposit of ${tx.currency} ${tx.amount} has been completed`,
+          data: { reference: tx.reference, amount: tx.amount }
+        }))
+      );
+    }
+
+    await createAuthNotification(null, {
+      userId,
+      type: 'transaction',
+      title: 'Deposit Completed',
+      message: `Your deposit of ${tx.currency} ${tx.amount} has been completed`,
+      data: { transactionRef: tx.reference, amount: tx.amount, transactionType: 'deposit' },
+      priority: 'high',
+    });
+
+    await createAdminNotification(null, {
+      type: 'wallet.deposit_completed',
+      title: 'Deposit Completed',
+      message: `Deposit of ${tx.currency} ${tx.amount} was completed for user ${userId} (Ref: ${tx.reference})`,
+      data: { userId, transactionRef: tx.reference, amount: tx.amount, transactionType: 'deposit' },
+      priority: 'high',
+    });
+
+    // Optionally store gateway event data in notes
+    await query('UPDATE transactions SET notes = $1 WHERE id = $2', [JSON.stringify(event || {}), tx.id]);
+
+    res.status(200).json({ success: true, message: 'Transaction completed and wallet credited' });
+  } catch (error) {
+    console.error('Internal complete error:', error);
+    res.status(500).json({ success: false, message: 'Failed to complete transaction', error: error.message });
+  }
+});
+
+// ==================== WITHDRAWAL ENDPOINTS ====================
+// Create a pending withdrawal transaction
+app.post('/internal/transactions/create-withdrawal', async (req, res) => {
+  try {
+    const secret = req.headers['x-service-secret'];
+    if (secret !== INTERNAL_SERVICE_SECRET) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+    const { userId, amount, fee, totalDebit, phone, reference, feeBreakdown } = req.body;
+    if (!userId || !amount || !phone) return res.status(400).json({ success: false, message: 'userId, amount and phone required' });
+
+    // Ensure wallet exists
+    let wallet = await query('SELECT id FROM wallets WHERE user_id = $1', [userId]);
+    if (wallet.rows.length === 0) {
+      wallet = await query('INSERT INTO wallets (user_id) VALUES ($1) RETURNING *', [userId]);
+    }
+
+    const walletId = wallet.rows[0].id;
+    const txRef = reference || `WD-${Date.now().toString().slice(-8)}`;
+    
+    // Create withdrawal transaction (type: debit, category: withdrawal)
+    const feeNote = feeBreakdown ? `Fixed: ${feeBreakdown.fixed}, Percentage: ${feeBreakdown.percentage}` : '';
+    const netAmount = parseFloat(amount) + parseFloat(fee || 0);
+    const tx = await query(
+      `INSERT INTO transactions (wallet_id, type, category, description, amount, net_amount, fee, currency, status, reference, from_entity, to_entity, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [walletId, 'debit', 'withdrawal', `Withdrawal to ${phone}`, amount, netAmount, fee, 'XAF', 'pending', txRef, 'My Wallet', `Mobile: ${phone}`, feeNote]
+    );
+
+    res.status(201).json({ success: true, transaction: { id: tx.rows[0].id, reference: txRef, amount: parseFloat(amount), fee: parseFloat(fee), status: 'pending' } });
+  } catch (error) {
+    console.error('Internal create withdrawal error:', error);
+    res.status(500).json({ success: false, message: 'Failed to create withdrawal transaction', error: error.message });
+  }
+});
+
+// Complete a withdrawal transaction
+app.post('/internal/transactions/complete-withdrawal', async (req, res) => {
+  try {
+    const secret = req.headers['x-service-secret'];
+    if (secret !== INTERNAL_SERVICE_SECRET) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+    const { reference, event } = req.body;
+    if (!reference) return res.status(400).json({ success: false, message: 'reference required' });
+
+    const txResult = await query('SELECT * FROM transactions WHERE reference = $1 LIMIT 1', [reference]);
+    if (txResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Withdrawal transaction not found' });
+    }
+
+    const tx = txResult.rows[0];
+    if (tx.status === 'completed') {
+      return res.status(200).json({ success: true, message: 'Withdrawal already completed' });
+    }
+
+    // Update transaction status to completed
+    await query('UPDATE transactions SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['completed', tx.id]);
+
+    // Debit wallet (amount + fee)
+    const debitAmount = parseFloat(tx.amount) + parseFloat(tx.fee || 0);
+    await query('UPDATE wallets SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [debitAmount, tx.wallet_id]);
+
+    // Fetch user id for notification
+    const walletInfo = await query('SELECT user_id FROM wallets WHERE id = $1', [tx.wallet_id]);
+    const userId = walletInfo.rows[0].user_id;
+
+    // Publish notification if channel exists
+    if (rabbitmqChannel) {
+      await rabbitmqChannel.publish(
+        'nexvault.notifications',
+        'email',
+        Buffer.from(JSON.stringify({
+          type: 'withdrawal',
+          userId,
+          title: 'Withdrawal Completed',
+          message: `Your withdrawal of ${tx.currency} ${tx.amount} has been sent to your mobile account`,
+          data: { reference: tx.reference, amount: tx.amount, fee: tx.fee }
+        }))
+      );
+    }
+
+    await createAdminNotification(null, {
+      type: 'wallet.withdrawal_completed',
+      title: 'Withdrawal Completed',
+      message: `Withdrawal of ${tx.currency} ${tx.amount} was completed for user ${userId} (Ref: ${tx.reference})`,
+      data: { userId, transactionRef: tx.reference, amount: tx.amount, transactionType: 'withdrawal' },
+      priority: 'high',
+    });
+
+    // Store gateway event data
+    await query('UPDATE transactions SET notes = $1 WHERE id = $2', [JSON.stringify(event || {}), tx.id]);
+
+    res.status(200).json({ success: true, message: 'Withdrawal completed and wallet debited', transaction: tx });
+  } catch (error) {
+    console.error('Internal complete withdrawal error:', error);
+    res.status(500).json({ success: false, message: 'Failed to complete withdrawal', error: error.message });
+  }
+});
+
+// Fail a withdrawal transaction (rollback)
+app.post('/internal/transactions/fail-withdrawal', async (req, res) => {
+  try {
+    const secret = req.headers['x-service-secret'];
+    if (secret !== INTERNAL_SERVICE_SECRET) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+    const { reference, reason } = req.body;
+    if (!reference) return res.status(400).json({ success: false, message: 'reference required' });
+
+    const txResult = await query('SELECT * FROM transactions WHERE reference = $1 LIMIT 1', [reference]);
+    if (txResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Withdrawal transaction not found' });
+    }
+
+    const tx = txResult.rows[0];
+    if (tx.status !== 'pending') {
+      return res.status(400).json({ success: false, message: 'Can only fail pending transactions' });
+    }
+
+    // Update transaction status to failed
+    const failNote = reason ? `Failed: ${reason}` : 'Failed: Payout initiation error';
+    await query('UPDATE transactions SET status = $1, note = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', ['failed', failNote, tx.id]);
+
+    res.status(200).json({ success: true, message: 'Withdrawal marked as failed' });
+  } catch (error) {
+    console.error('Fail withdrawal error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fail withdrawal transaction', error: error.message });
+  }
+});
+
+// Get wallet balance by userId (internal endpoint for payment service)
+app.get('/internal/wallet-balance/:userId', async (req, res) => {
+  try {
+    const secret = req.headers['x-service-secret'];
+    if (secret !== INTERNAL_SERVICE_SECRET) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ success: false, message: 'userId required' });
+
+    // Get or create wallet
+    let wallet = await query('SELECT * FROM wallets WHERE user_id = $1', [userId]);
+    if (wallet.rows.length === 0) {
+      wallet = await query('INSERT INTO wallets (user_id) VALUES ($1) RETURNING *', [userId]);
+    }
+
+    const balance = parseFloat(wallet.rows[0].balance || 0);
+    res.status(200).json({ success: true, balance, currency: 'XAF' });
+  } catch (error) {
+    console.error('Balance check error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get wallet balance', error: error.message });
+  }
+});
+
+// ==================== ADMIN TRANSACTION ENDPOINTS ====================
+// These endpoints are intended for admin users to view and validate pending external payments
+app.get('/admin/transactions', authenticateToken, async (req, res) => {
+  try {
+    // Only allow admins (auth service should provide role in token)
+    if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const { status = 'pending', limit = 100, offset = 0 } = req.query;
+    const result = await query(
+      'SELECT t.*, w.user_id as user_id FROM transactions t LEFT JOIN wallets w ON t.wallet_id = w.id WHERE t.status = $1 ORDER BY t.created_at DESC LIMIT $2 OFFSET $3',
+      [status, parseInt(limit), parseInt(offset)]
+    );
+
+    res.status(200).json({ success: true, transactions: result.rows });
+  } catch (error) {
+    console.error('Admin transactions fetch error:', error.message || error);
+    res.status(500).json({ success: false, message: 'Failed to fetch transactions', error: error.message });
+  }
+});
+
+// Admin: validate (confirm) a pending transaction reference and mark as completed (manual flow)
+app.post('/admin/transactions/:reference/validate', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const { reference } = req.params;
+    if (!reference) return res.status(400).json({ success: false, message: 'reference required' });
+
+    // Reuse internal complete logic by finding the transaction and calling the same update
+    const txResult = await query('SELECT * FROM transactions WHERE reference = $1 LIMIT 1', [reference]);
+    if (txResult.rows.length === 0) return res.status(404).json({ success: false, message: 'Transaction not found' });
+
+    const tx = txResult.rows[0];
+    if (tx.status === 'completed') return res.status(200).json({ success: true, message: 'Already completed' });
+
+    // Update status to completed and credit wallet (same as internal/complete)
+    await query('UPDATE transactions SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['completed', tx.id]);
+    const creditAmount = parseFloat(tx.amount) - parseFloat(tx.fee || 0);
+    await query('UPDATE wallets SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [creditAmount, tx.wallet_id]);
+    await query('UPDATE transactions SET notes = $1 WHERE id = $2', [JSON.stringify({ validatedBy: req.user.adminId || req.user.userId, validatedAt: new Date() }), tx.id]);
+
+    res.status(200).json({ success: true, message: 'Transaction validated and wallet credited' });
+  } catch (error) {
+    console.error('Admin validate error:', error.message || error);
+    res.status(500).json({ success: false, message: 'Validation failed', error: error.message });
   }
 });
 
@@ -645,9 +996,9 @@ app.post(['/transfer', '/api/transactions/transfer'], authenticateToken, verifyK
     const txRef = `TRF-${Date.now().toString().slice(-8)}`;
 
     await query(
-      `INSERT INTO transactions (wallet_id, type, category, description, amount, currency, fee, status, reference, from_entity, to_entity, note)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [senderWalletId, 'debit', 'transfer', `Transfer to ${recipientName}`, amount, currency, fee, 'completed', txRef, 'My Wallet', recipientEmail, note || '']
+      `INSERT INTO transactions (wallet_id, type, category, description, amount, net_amount, currency, fee, status, reference, from_entity, to_entity, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [senderWalletId, 'debit', 'transfer', `Transfer to ${recipientName}`, amount, parseFloat(amount) + fee, currency, fee, 'completed', txRef, 'My Wallet', recipientEmail, note || '']
     );
 
     await query(
@@ -675,9 +1026,9 @@ app.post(['/transfer', '/api/transactions/transfer'], authenticateToken, verifyK
     const recipientEmailAddress = recipientEmailResult.rows[0]?.email || recipientEmail;
 
     await query(
-      `INSERT INTO transactions (wallet_id, type, category, description, amount, currency, fee, status, reference, from_entity, to_entity)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [recipientWalletId, 'credit', 'transfer', `Transfer from ${recipientName}`, amount, currency, 0, 'completed', txRef, senderEmail || 'My Wallet', 'My Wallet']
+      `INSERT INTO transactions (wallet_id, type, category, description, amount, net_amount, currency, fee, status, reference, from_entity, to_entity)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [recipientWalletId, 'credit', 'transfer', `Transfer from ${recipientName}`, amount, amount, currency, 0, 'completed', txRef, senderEmail || 'My Wallet', 'My Wallet']
     );
 
     const updatedSenderBalance = await query(
@@ -735,6 +1086,14 @@ app.post(['/transfer', '/api/transactions/transfer'], authenticateToken, verifyK
       priority: 'normal',
     });
 
+    await createAdminNotification(req.headers.authorization, {
+      type: 'wallet.transfer',
+      title: 'Transfer Processed',
+      message: `Transfer of ${currency} ${amount} was processed from ${senderEmail || userId} to ${recipientEmail} (Ref: ${txRef})`,
+      data: { senderUserId: userId, recipientUserId: recipientId, transactionRef: txRef, amount, recipientEmail, transactionType: 'transfer' },
+      priority: 'normal',
+    });
+
     res.status(200).json({
       success: true,
       message: 'Transfer sent successfully',
@@ -764,13 +1123,91 @@ app.post(['/transfer', '/api/transactions/transfer'], authenticateToken, verifyK
 app.post(['/withdraw', '/api/transactions/withdraw'], authenticateToken, verifyKYC, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { amount, bankDetails, currency = 'XAF' } = req.body;
+    const { amount: rawAmount, withdrawalType, bankDetails, mobileDetails, currency = 'XAF' } = req.body;
+    const amount = Math.round(parseFloat(rawAmount) || 0);
+    const minWithdrawal = 500;
 
-    if (!amount || amount <= 0 || !bankDetails) {
+    if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
-        message: 'Valid amount and bank details are required',
+        message: 'Valid amount is required',
       });
+    }
+
+    if (amount < minWithdrawal) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum withdrawal amount is XAF ${minWithdrawal}`,
+      });
+    }
+
+    if (!withdrawalType || !['bank', 'mobile'].includes(withdrawalType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Withdrawal type must be bank or mobile',
+      });
+    }
+
+    const txRef = `WDR-${Date.now().toString().slice(-8)}`;
+    let description;
+    let toEntity;
+    let notificationData;
+    let notificationMessage;
+    let bankName = null;
+    let accountNumber = null;
+    let note = '';
+
+    const normalizePhone = (phone) => {
+      if (typeof phone !== 'string') return null;
+      const cleaned = phone.replace(/\s|\+|-/g, '');
+      if (cleaned.startsWith('237') && cleaned.length === 12) {
+        return cleaned.slice(3);
+      }
+      if (cleaned.length === 9 && /^6\d{8}$/.test(cleaned)) {
+        return cleaned;
+      }
+      return null;
+    };
+
+    if (withdrawalType === 'bank') {
+      if (!bankDetails || !bankDetails.bankName || !bankDetails.accountNumber) {
+        return res.status(400).json({
+          success: false,
+          message: 'Valid bank details are required for bank withdrawal',
+        });
+      }
+
+      description = `Withdrawal to ${bankDetails.bankName}`;
+      toEntity = bankDetails.bankName;
+      bankName = bankDetails.bankName;
+      accountNumber = bankDetails.accountNumber;
+      note = `Bank account: ${bankDetails.accountNumber}`;
+      notificationMessage = `Your withdrawal of ${currency} ${amount} to ${bankDetails.bankName} has been initiated and will be processed in 1-3 business days`;
+      notificationData = { reference: txRef, amount, bankName: bankDetails.bankName };
+    } else {
+      if (!mobileDetails || !mobileDetails.phone || !mobileDetails.provider) {
+        return res.status(400).json({
+          success: false,
+          message: 'Valid mobile details are required for mobile withdrawal',
+        });
+      }
+
+      const normalizedPhone = normalizePhone(mobileDetails.phone);
+      if (!normalizedPhone) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid mobile phone format. Use 9-digit local format or +237 prefix.',
+        });
+      }
+
+      const providerName = mobileDetails.provider === 'orange' ? 'Orange Money' : mobileDetails.provider === 'mtn' ? 'MTN Mobile Money' : mobileDetails.provider;
+      description = `Withdrawal to ${providerName}`;
+      toEntity = `Mobile: ${normalizedPhone}`;
+      bankName = providerName;
+      accountNumber = normalizedPhone;
+      note = `Mobile provider: ${providerName}; Phone: ${normalizedPhone}`;
+      notificationMessage = `Your withdrawal of ${currency} ${amount} to ${providerName} ${normalizedPhone} has been initiated and will be processed in 1-5 minutes`;
+      notificationData = { reference: txRef, amount, provider: providerName, phone: normalizedPhone };
     }
 
     // Get wallet for user
@@ -797,12 +1234,12 @@ app.post(['/withdraw', '/api/transactions/withdraw'], authenticateToken, verifyK
     }
 
     const fee = 0;
-    const txRef = `WDR-${Date.now().toString().slice(-8)}`;
+    const netAmount = parseFloat(amount) + parseFloat(fee || 0);
 
     await query(
-      `INSERT INTO transactions (wallet_id, type, category, description, amount, currency, fee, status, reference, from_entity, to_entity, bank_name, account_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-      [walletId, 'debit', 'withdrawal', `Withdrawal to ${bankDetails.bankName}`, amount, currency, fee, 'pending', txRef, 'My Wallet', bankDetails.bankName, bankDetails.bankName, bankDetails.accountNumber]
+      `INSERT INTO transactions (wallet_id, type, category, description, amount, net_amount, currency, fee, status, reference, from_entity, to_entity, bank_name, account_number, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+      [walletId, 'debit', 'withdrawal', description, amount, netAmount, currency, fee, 'pending', txRef, 'My Wallet', toEntity, bankName, accountNumber, note]
     );
 
     await query(
@@ -831,8 +1268,8 @@ app.post(['/withdraw', '/api/transactions/withdraw'], authenticateToken, verifyK
           type: 'withdrawal',
           email: userEmail,
           title: 'Withdrawal Initiated',
-          message: `Your withdrawal of ${currency} ${amount} to ${bankDetails.bankName} has been initiated and will be processed in 1-3 business days`,
-          data: { reference: txRef, amount, bankName: bankDetails.bankName },
+          message: notificationMessage,
+          data: notificationData,
         }))
       );
     }
@@ -841,8 +1278,16 @@ app.post(['/withdraw', '/api/transactions/withdraw'], authenticateToken, verifyK
       userId,
       type: 'transaction',
       title: 'Withdrawal Initiated',
-      message: `Your withdrawal of ${currency} ${amount} to ${bankDetails.bankName} has been initiated and will be processed in 1-3 business days`,
-      data: { transactionRef: txRef, amount, bankName: bankDetails.bankName, transactionType: 'withdrawal' },
+      message: notificationMessage,
+      data: { transactionRef: txRef, amount, transactionType: 'withdrawal', ...notificationData },
+      priority: 'normal',
+    });
+
+    await createAdminNotification(req.headers.authorization, {
+      type: 'wallet.withdrawal',
+      title: 'Withdrawal Initiated',
+      message: `Withdrawal of ${currency} ${amount} was initiated for user ${userId} (Ref: ${txRef})`,
+      data: { userId, transactionRef: txRef, amount, transactionType: 'withdrawal', ...notificationData },
       priority: 'normal',
     });
 

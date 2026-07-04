@@ -6,9 +6,9 @@ services:
     image: postgres:15-alpine
     container_name: nexvault_postgres
     environment:
-      - POSTGRES_DB=nexvault_db
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=FONK2005-
+      POSTGRES_DB: nexvault_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: FONK2005-
     ports:
       - "5432:5432"
     volumes:
@@ -63,9 +63,9 @@ services:
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672"
       EMAIL_HOST: smtp.gmail.com
       EMAIL_PORT: 587
-      EMAIL_USER: fonkouaarnauld@gmail.com
-      EMAIL_PASSWORD: zwwkhteflwgpycyq
-      EMAIL_FROM: noreply@nexvault.com || fonkouaarnauld@gmail.com
+      EMAIL_USER: arnauldfonkoua@gmail.com
+      EMAIL_PASSWORD: yhniitwjjkaaajau
+      EMAIL_FROM: arnauldfonkoua@gmail.com || fonkouaarnauld@gmail.com
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,9 +89,9 @@ services:
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672"
       EMAIL_HOST: smtp.gmail.com
       EMAIL_PORT: 587
-      EMAIL_USER: fonkouaarnauld@gmail.com
-      EMAIL_PASSWORD: zwwkhteflwgpycyq
-      EMAIL_FROM: fonkouaarnauld@gmail.com
+      EMAIL_USER: arnauldfonkoua@gmail.com
+      EMAIL_PASSWORD: yhniitwjjkaaajau
+      EMAIL_FROM: arnauldfonkoua@gmail.com
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -99,25 +99,23 @@ services:
       - nexvault_network
     restart: unless-stopped
 
-    #wallet service - Java
-  wallet-service-java:
+  # Payment Service - Node.js/Express
+  payment-service:
     build:
-      context: ./cloud-wallet/apps/wallet-service/Wallet-Service-System
+      context: ./cloud-wallet/apps/payment-service
       dockerfile: Dockerfile
+    container_name: nexvault_payment_service
     ports:
-    - "8080:8080"
-    container_name: nexvault_wallet_service_java
+      - "3006:3006"
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/nexvault_db
-      - SPRING_DATASOURCE_USERNAME=postgres
-      - SPRING_DATASOURCE_PASSWORD=FONK2005-
-      - SPRING_RABBITMQ_HOST=rabbitmq
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=none
-      - SPRING_RABBITMQ_PORT=5672
-      - SPRING_RABBITMQ_USERNAME=guest
-      - SPRING_RABBITMQ_PASSWORD=guest
-      - SPRING_RABBITMQ_VIRTUAL_HOST=/
-
+      PORT: 3006
+      NODE_ENV: production
+      DB_USER: postgres
+      DB_PASSWORD: FONK2005-
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: nexvault_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,6 +125,32 @@ services:
       - nexvault_network
     restart: unless-stopped
 
+  # Wallet Service - Java
+  wallet-service-java:
+    build:
+      context: ./cloud-wallet/apps/wallet-service/Wallet-Service-System
+      dockerfile: Dockerfile
+    container_name: nexvault_wallet_service_java
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/nexvault_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: FONK2005-
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_JPA_HIBERNATE_DDL_AUTO: none
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: guest
+      SPRING_RABBITMQ_PASSWORD: guest
+      SPRING_RABBITMQ_VIRTUAL_HOST: /
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - nexvault_network
+    restart: unless-stopped
 
   # Wallet Service - Node.js/Express
   wallet-service:
@@ -137,15 +161,15 @@ services:
     ports:
       - "3003:3003"
     environment:
-     - PORT=3003
-      - NODE_ENV=development
-      - DB_USER=postgres
-      - DB_PASSWORD=FONK2005-
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=nexvault_db
-      - JWT_SECRET=fbd204a7-318e-4dd3-86e0-e6d524fc3f98
-      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      PORT: 3003
+      NODE_ENV: development
+      DB_USER: postgres
+      DB_PASSWORD: FONK2005-
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: nexvault_db
+      JWT_SECRET: fbd204a7-318e-4dd3-86e0-e6d524fc3f98
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
     depends_on:
       postgres:
         condition: service_healthy
@@ -155,11 +179,11 @@ services:
       - nexvault_network
     restart: unless-stopped
 
-    #Frontend - React.js (served separately, in Docker)
+  # Frontend - React.js
   nexvault-frontend:
     build:
-      context: ./src
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./src/Dockerfile
     container_name: nexvault_frontend
     ports:
       - "5173:5173"
@@ -173,6 +197,26 @@ services:
       - nexvault_network
     restart: unless-stopped
 
+  # Admin Dashboard - React.js
+  admin-dashboard:
+    build:
+      context: ./nexvaultadmin-master
+      dockerfile: Dockerfile
+    container_name: nexvault_admin_dashboard
+    ports:
+      - "5174:5174"
+    environment:
+      PORT: 5174
+      NODE_ENV: development
+      REACT_APP_API_URL: http://localhost:3001
+    depends_on:
+      - auth-service
+      - wallet-service
+      - wallet-service-java
+      - api-gateway
+    networks:
+      - nexvault_network
+    restart: unless-stopped
 
   # API Gateway - Express.js
   api-gateway:
@@ -188,13 +232,22 @@ services:
       AUTH_SERVICE_URL: http://auth-service:3001
       WALLET_SERVICE_URL: http://wallet-service:3003
       WALLET_SERVICE_JAVA_URL: http://wallet-service-java:8080
+      PAYMENT_SERVICE_URL: http://payment-service:3006
       NOTIFICATION_SERVICE_URL: http://notification-service:3002
       FRONTEND_URL: http://localhost:5173
     depends_on:
-      - auth-service
-      - wallet-service
-      - wallet-service-java
-      - notification-service
+      auth-service:
+        condition: service_started
+      wallet-service:
+        condition: service_started
+      wallet-service-java:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     networks:
       - nexvault_network
     restart: unless-stopped

@@ -7,6 +7,7 @@ import {
 import { FcGoogle } from 'react-icons/fc';
 import { FaApple } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
+import { apiClient } from '../api/client';
 import './Auth.css';
 
 function validateEmail(email) {
@@ -45,13 +46,20 @@ function getPasswordStrength(pw) {
 
 export function Login() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, isAuthenticated, loading: authLoading } = useAuth();
   const [form, setForm] = useState({ email: '', password: '', remember: false });
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
   const justRegistered = new URLSearchParams(window.location.search).get('registered') === 'true';
+
+  // Redirect to dashboard if already authenticated
+  useEffect(() => {
+    if (isAuthenticated && !authLoading) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, authLoading, navigate]);
 
   const validate = () => {
     const e = {};
@@ -74,7 +82,8 @@ export function Login() {
       if (response.success && response.requiresTwoFactor) {
         navigate('/verify-2fa', { state: { email: form.email.trim(), method: response.twoFactorMethod } });
       } else if (response.success) {
-        navigate('/dashboard');
+        // Auto-reload page after successful login to ensure all data is properly initialized
+        setTimeout(() => window.location.href = '/dashboard', 100);
       } else {
         setErrors({ form: response.message || 'Invalid email or password.' });
       }
@@ -84,6 +93,18 @@ export function Login() {
       setLoading(false);
     }
   };
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: 'var(--bg-light)',
+      }}>
+        <span className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+      </div>
+    );
+  }
 
   const features = [
     { icon: <Shield size={16} />, label: 'Bank-grade security' },
@@ -200,12 +221,19 @@ export function Login() {
 export function Verify2FA() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { verifyTwoFactor } = useAuth();
+  const { verifyTwoFactor, isAuthenticated, loading: authLoading } = useAuth();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const email = location.state?.email || '';
   const method = location.state?.method || 'email';
+
+  // Redirect to dashboard if already authenticated
+  useEffect(() => {
+    if (isAuthenticated && !authLoading) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, authLoading, navigate]);
 
   useEffect(() => {
     if (!email) {
@@ -225,7 +253,8 @@ export function Verify2FA() {
     try {
       const response = await verifyTwoFactor(email, code.trim());
       if (response.success) {
-        navigate('/dashboard');
+        // Auto-reload page after successful 2FA verification to ensure all data is properly initialized
+        setTimeout(() => window.location.href = '/dashboard', 100);
       } else {
         setError(response.message || 'Invalid verification code.');
       }
@@ -235,6 +264,18 @@ export function Verify2FA() {
       setLoading(false);
     }
   };
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: 'var(--bg-light)',
+      }}>
+        <span className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+      </div>
+    );
+  }
 
   return (
     <div className="auth-page">
@@ -297,6 +338,7 @@ export function Verify2FA() {
 
 export function Register() {
   const navigate = useNavigate();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
@@ -306,7 +348,26 @@ export function Register() {
     password: '', confirm: '', agree: false,
   });
 
+  // Redirect to dashboard if already authenticated
+  useEffect(() => {
+    if (isAuthenticated && !authLoading) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, authLoading, navigate]);
+
   const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: 'var(--bg-light)',
+      }}>
+        <span className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+      </div>
+    );
+  }
 
   const validateStep1 = () => {
     const e = {};
@@ -352,13 +413,40 @@ export function Register() {
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setErrors({});
     setLoading(true);
-    setTimeout(() => { setLoading(false); navigate('/login?registered=true'); }, 1200);
+
+    try {
+       apiClient.register({
+        email: form.email.trim(),
+        password: form.password,
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        phoneNumber: form.phone.trim(),
+      });
+
+      navigate('/login?registered=true');
+    } catch (error) {
+      setErrors({ submit: error.message || 'Registration failed. Please try again.' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const pwStrength = getPasswordStrength(form.password);
   const pwColor = pwStrength.color;
 
   const steps = ['Create your account', 'Sign in', 'Verify & transact'];
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: 'var(--bg-light)',
+      }}>
+        <span className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+      </div>
+    );
+  }
 
   return (
     <div className="auth-page">
@@ -395,6 +483,11 @@ export function Register() {
           </div>
 
           <form onSubmit={handleNext} noValidate style={{ marginTop: 24 }}>
+            {errors.submit && (
+              <div className="alert alert-danger" style={{ marginBottom: 16 }}>
+                {errors.submit}
+              </div>
+            )}
             {step === 1 && <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div className="form-group">

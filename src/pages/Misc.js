@@ -717,7 +717,7 @@ export function Settings() {
   const [settings, setSettings] = useState({
     emailNotifs: true, pushNotifs: true, smsAlerts: false, loginAlerts: true,
     twoFactor: true, biometric: true, darkMode: false,
-    language: 'en', currency: 'USD',
+    language: 'en', currency: 'XAF',
   });
   const [saved, setSaved] = useState(false);
 
@@ -813,10 +813,10 @@ export function Settings() {
               </div>
             </div>
             <select className="form-control" style={{ width: 160 }} value={settings.currency} onChange={e => setSettings(s => ({ ...s, currency: e.target.value }))}>
+              <option value="XAF">XAF — CFA Franc</option>
               <option value="USD">USD — US Dollar</option>
               <option value="EUR">EUR — Euro</option>
               <option value="GBP">GBP — British Pound</option>
-              <option value="XAF">XAF — CFA Franc</option>
             </select>
           </div>
         </div>
