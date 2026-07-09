@@ -3,8 +3,10 @@
 
 // Development mode: connect directly to mock auth service for testing
 const USE_MOCK_AUTH = process.env.REACT_APP_USE_MOCK_AUTH === 'true';
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-const MOCK_AUTH_URL = process.env.REACT_APP_MOCK_AUTH_URL || 'http://localhost:3001';
+const DEFAULT_DEV_API_URL = 'http://localhost:4000/api';
+const DEFAULT_DEV_MOCK_AUTH_URL = 'http://localhost:3001';
+const API_BASE_URL = process.env.REACT_APP_API_URL || (typeof window !== 'undefined' && window.location.protocol === 'https:' ? '/api' : DEFAULT_DEV_API_URL);
+const MOCK_AUTH_URL = process.env.REACT_APP_MOCK_AUTH_URL || DEFAULT_DEV_MOCK_AUTH_URL;
 
 class APIClient {
   constructor() {
