@@ -1,0 +1,19 @@
+{
+    # Global options
+    # Optional: set admin listener or email for ACME
+}
+
+# Serve the frontend and reverse-proxy /api to backend defined by BACKEND_URL env var
+:80, :443 {
+    encode gzip
+
+    @api {
+        path /api/*
+    }
+
+    reverse_proxy @api {env.BACKEND_URL}
+
+    root * /build
+    file_server
+    try_files {path} /index.html
+}
