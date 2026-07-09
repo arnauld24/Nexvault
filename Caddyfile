@@ -11,7 +11,9 @@
         path /api/*
     }
 
-    reverse_proxy @api {env.BACKEND_URL}
+    # Reverse proxy to BACKEND_URL when set; fall back to localhost:3000 so Caddy can start
+    # If you set BACKEND_URL in Railway env to your API HTTPS URL, that will be used.
+    reverse_proxy @api {env.BACKEND_URL} 127.0.0.1:3000
 
     root * /build
     file_server
